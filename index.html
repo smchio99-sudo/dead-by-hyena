@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Project: DEADLINE v10 (Stealth Update)</title>
+    <style>
+        body { margin: 0; background-color: #020202; overflow: hidden; color: #d3d3d3; font-family: 'Segoe UI', sans-serif; user-select: none; }
+        #gameCanvas { display: block; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        .hud { position: absolute; padding: 25px; font-weight: 800; text-shadow: 2px 2px 8px rgba(0,0,0,1); }
+        #objective { top: 20px; left: 20px; color: #ffeb3b; font-size: 1.8em; letter-spacing: 1.5px;}
+        #terror-radius { position: absolute; bottom: 140px; right: 40px; color: #cc0000; opacity: 0; transition: opacity 0.3s; font-size: 2.2em; animation: heartbeat 0.8s infinite; text-transform: uppercase;}
+        
+        #cooldown-ui { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); color: #ff3333; font-size: 1.2em; font-weight: bold; text-shadow: 1px 1px 5px #000; display: none; }
+
+        #skill-check-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 160px; height: 160px; border-radius: 50%; border: 6px solid rgba(255,255,255,0.2); display: none; background: radial-gradient(circle, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.95) 100%); box-shadow: 0 0 40px rgba(0,0,0,1); }
+        #sc-success-zone { position: absolute; top: -6px; left: -6px; width: 160px; height: 160px; border-radius: 50%; border: 6px solid transparent; border-top-color: #fff; transform: rotate(45deg); filter: drop-shadow(0 0 8px #fff); }
+        #sc-needle { position: absolute; top: 50%; left: 50%; width: 4px; height: 80px; background-color: #ff3333; transform-origin: top center; transform: rotate(180deg); box-shadow: 0 0 8px #ff3333; border-radius: 2px;}
+        
+        #action-bar-container { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); width: 300px; height: 15px; background: rgba(0,0,0,0.7); border: 2px solid #555; display: none; border-radius: 8px; overflow: hidden; box-shadow: 0 0 15px rgba(0,0,0,0.8);}
+        #action-bar-fill { width: 0%; height: 100%; background: #ffeb3b; box-shadow: 0 0 10px #ffeb3b; transition: width 0.1s linear;}
+
+        .instruction { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); text-align: center; color: #bbb; font-size: 1em; background: rgba(0,0,0,0.8); padding: 10px 20px; border-radius: 8px; border: 1px solid #333;}
+        .key { display: inline-block; padding: 4px 8px; background: #111; border-radius: 4px; color: #fff; font-weight: bold; border: 1px solid #555; margin: 0 2px;}
+
+        @keyframes heartbeat { 0% { transform: scale(1); } 50% { transform: scale(1.15); color: #ff0000; } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body>
+    <audio id="bgmAudio" src="bgm.mp4" loop></audio>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div id="objective" class="hud">발전기 수리: <span id="gen-count">0</span> / 5</div>
+        <div id="terror-radius" class="hud">⚠️ 심장 박동 ⚠️</div>
+        <div id="cooldown-ui">캐비닛 쿨다운: <span id="cd-time">10</span>초</div>
+        
+        <div id="skill-check-container"><div id="sc-success-zone"></div><div id="sc-needle"></div></div>
+        <div id="action-bar-container"><div id="action-bar-fill"></div></div>
+
+        <div class="instruction">
+            이동: <span class="key">WASD</span> | <b>달리기: <span class="key">SHIFT</span></b> | 상호작용: <span class="key">E</span> 꾹 | 캐비닛: <span class="key">F</span> | 스킬체크: <span class="key">SPACE</span>
+        </div>
+    </div>
+
+<script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain();
+        osc.connect(gainNode); gainNode.connect(audioCtx.destination);
+
+        if(type === 'warning') { osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.3); gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime); gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3); osc.start(); osc.stop(audioCtx.currentTime + 0.3); }
+        else if(type === 'explosion') { osc.type = 'square'; osc.frequency.setValueAtTime(100, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.5); gainNode.gain.setValueAtTime(1, audioCtx.currentTime); gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); }
+        else if(type === 'heartbeat') { osc.type = 'triangle'; osc.frequency.setValueAtTime(50, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.2); gainNode.gain.setValueAtTime(0.8, audioCtx.currentTime); gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2); osc.start(); osc.stop(audioCtx.currentTime + 0.2); }
+        else if(type === 'success') { osc.type = 'sine'; osc.frequency.setValueAtTime(600, audioCtx.currentTime); gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); }
+        else if(type === 'siren') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(600, audioCtx.currentTime + 1.5); gainNode.gain.setValueAtTime(0.4, audioCtx.currentTime); gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 2); osc.start(); osc.stop(audioCtx.currentTime + 2); }
+    }
+    let lastHeartbeatTime = 0;
+
+    const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
+    const fogCanvas = document.createElement('canvas'); const fogCtx = fogCanvas.getContext('2d');
+
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; fogCanvas.width = window.innerWidth; fogCanvas.height = window.innerHeight; }
+    window.addEventListener('resize', resize); resize();
+
+    const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000;
+
+    const keys = { w:false, a:false, s:false, d:false, e:false, space:false, f:false, shift:false };
+    let spacePressed = false; let fPressed = false;
+    
+    window.addEventListener('keydown', e => {
+        let key = e.key.toLowerCase(); if(keys.hasOwnProperty(key)) keys[key] = true;
+        if(e.key === 'Shift') keys.shift = true;
+        if(e.code === 'Space') { keys.space = true; if(!spacePressed && state.skillCheck.active) handleSkillCheck(); spacePressed = true; }
+    });
+    window.addEventListener('keyup', e => {
+        let key = e.key.toLowerCase(); if(keys.hasOwnProperty(key)) keys[key] = false;
+        if(e.key === 'Shift') keys.shift = false;
+        if(e.code === 'Space') { keys.space = false; spacePressed = false; }
+        if(key === 'f') fPressed = false;
+    });
+
+    const state = { gameOver: false, victory: false, gensFixed: 0, endgame: false, skillCheck: { active: false, angle: 0, speed: 2.5, targetStart: 200, targetEnd: 300 } };
+    const camera = { x: 0, y: 0 };
+
+    const player = { x: 1500, y: 1500, walkSpeed: 1.4, runSpeed: 4.2, radius: 18, actionProgress: 0, isHiding: false, interacting: false, walkCycle: 0, cabCooldown: 0 };
+    const killer = { x: 500, y: 500, speed: 3.5, radius: 24, angle: 0, targetX: 500, targetY: 500, state: 'patrol', targetGate: 0 }; 
+    
+    let scratchMarks = []; 
+
+    const obstacles = [];
+    for(let i=0; i<60; i++) { obstacles.push({ x: Math.random() * (WORLD_WIDTH - 200) + 100, y: Math.random() * (WORLD_HEIGHT - 200) + 100, w: Math.random() * 150 + 50, h: Math.random() * 100 + 40 }); }
+
+    const generators = [];
+    let attempts = 0;
+    while(generators.length < 7 && attempts < 1000) {
+        attempts++;
+        let gx = Math.random() * (WORLD_WIDTH - 400) + 200; let gy = Math.random() * (WORLD_HEIGHT - 400) + 200;
+        let tooClose = false;
+        for(let g of generators) { if(Math.hypot(g.x - gx, g.y - gy) < 450) { tooClose = true; break; } }
+        if(!tooClose) generators.push({ x: gx, y: gy, progress: 0, fixed: false });
+    }
+
+    const lockers = [];
+    for(let i=0; i<30; i++) { lockers.push({ x: Math.random() * (WORLD_WIDTH - 200) + 100, y: Math.random() * (WORLD_HEIGHT - 200) + 100, w: 45, h: 60 }); }
+
+    const exitGates = [
+        { x: WORLD_WIDTH/2 - 125, y: 10, w: 250, h: 40, leverX: WORLD_WIDTH/2, leverY: 60, progress: 0, status: 'inactive' },
+        { x: WORLD_WIDTH/2 - 125, y: WORLD_HEIGHT - 50, w: 250, h: 40, leverX: WORLD_WIDTH/2, leverY: WORLD_HEIGHT - 70, progress: 0, status: 'inactive' }
+    ];
+
+    const elGenCount = document.getElementById('gen-count'); const elObjective = document.getElementById('objective');
+    const elTerror = document.getElementById('terror-radius'); const elSC = document.getElementById('skill-check-container');
+    const elSCNeedle = document.getElementById('sc-needle'); const elActionBar = document.getElementById('action-bar-container');
+    const elActionFill = document.getElementById('action-bar-fill'); const elCdUI = document.getElementById('cooldown-ui'); const elCdTime = document.getElementById('cd-time');
+
+    function checkCollision(px, py, radius) {
+        for(let obs of obstacles) {
+            let testX = px; let testY = py;
+            if (px < obs.x) testX = obs.x; else if (px > obs.x + obs.w) testX = obs.x + obs.w;
+            if (py < obs.y) testY = obs.y; else if (py > obs.y + obs.h) testY = obs.y + obs.h;
+            if (((px - testX)**2 + (py - testY)**2) <= radius**2) return true;
+        } return false;
+    }
+
+    function update() {
+        if(state.gameOver || state.victory) return;
+
+        player.interacting = false;
+
+        if(player.cabCooldown > 0) {
+            player.cabCooldown--; elCdUI.style.display = 'block'; elCdTime.innerText = Math.ceil(player.cabCooldown / 60);
+        } else { elCdUI.style.display = 'none'; }
+
+        if(keys.f && !fPressed && !state.skillCheck.active) {
+            fPressed = true;
+            if(player.isHiding) { 
+                player.isHiding = false; 
+                player.cabCooldown = 600; 
+            } else if (player.cabCooldown <= 0) {
+                for(let l of lockers) {
+                    if(player.x > l.x - 30 && player.x < l.x + l.w + 30 && player.y > l.y - 30 && player.y < l.y + l.h + 30) {
+                        player.isHiding = true; player.x = l.x + l.w/2; player.y = l.y + l.h/2; 
+                        
+                        // [업데이트] 살인마 어그로 초기화 & 발전기 순찰
+                        killer.state = 'patrol';
+                        let randGen = generators[Math.floor(Math.random() * generators.length)];
+                        killer.targetX = randGen.x + (Math.random()-0.5)*150; 
+                        killer.targetY = randGen.y + (Math.random()-0.5)*150;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if(!player.isHiding && !player.interacting && !state.skillCheck.active) {
+            let dx = 0, dy = 0;
+            if(keys.w) dy -= 1; if(keys.s) dy += 1;
+            if(keys.a) dx -= 1; if(keys.d) dx += 1;
+            
+            if(dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+            
+            let currentSpeed = keys.shift ? player.runSpeed : player.walkSpeed;
+            let nextX = player.x + dx * currentSpeed; let nextY = player.y + dy * currentSpeed;
+
+            if(!checkCollision(nextX, player.y, player.radius)) player.x = Math.max(player.radius, Math.min(WORLD_WIDTH - player.radius, nextX));
+            if(!checkCollision(player.x, nextY, player.radius)) player.y = Math.max(player.radius, Math.min(WORLD_HEIGHT - player.radius, nextY));
+
+            if(dx !== 0 || dy !== 0) player.walkCycle += (keys.shift ? 0.5 : 0.2); else player.walkCycle = 0;
+
+            if(keys.shift && (dx !== 0 || dy !== 0)) {
+                if(Math.random() < 0.4) {
+                    scratchMarks.push({ x: player.x + (Math.random()-0.5)*20, y: player.y + (Math.random()-0.5)*20, angle: Math.atan2(dy, dx) + (Math.random()-0.5)*1, life: 1.0 });
+                }
+            }
+        }
+
+        for(let i=scratchMarks.length-1; i>=0; i--) {
+            scratchMarks[i].life -= 0.005; if(scratchMarks[i].life <= 0) scratchMarks.splice(i, 1);
+        }
+
+        camera.x = Math.max(0, Math.min(WORLD_WIDTH - canvas.width, player.x - canvas.width / 2));
+        camera.y = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, player.y - canvas.height / 2));
+
+        if(keys.e && !state.skillCheck.active && !player.isHiding) {
+            let foundInteraction = false;
+            if(!state.endgame) {
+                for(let g of generators) {
+                    if(!g.fixed && Math.hypot(player.x - g.x, player.y - g.y) < 70) {
+                        player.interacting = true; foundInteraction = true;
+                        g.progress += 0.11; player.actionProgress = g.progress;
+                        
+                        if(Math.random() < 0.003) startSkillCheck();
+                        if(g.progress >= 100) {
+                            g.fixed = true; state.gensFixed++; elGenCount.innerText = state.gensFixed;
+                            createExplosion(g.x, g.y, '#ffeb3b'); playSound('success');
+                            if(state.gensFixed >= 5) {
+                                state.endgame = true; elObjective.innerText = "출구(레버)를 찾아 문을 여세요!"; elObjective.style.color = "#ff3333";
+                                playSound('siren'); exitGates.forEach(eg => eg.status = 'powered');
+                            }
+                        } break;
+                    }
+                }
+            }
+            if(state.endgame && !foundInteraction) {
+                for(let eg of exitGates) {
+                    if((eg.status === 'powered' || eg.status === 'opening') && Math.hypot(player.x - eg.leverX, player.y - eg.leverY) < 60) {
+                        player.interacting = true; eg.status = 'opening';
+                        eg.progress += (100 / 300); player.actionProgress = eg.progress;
+                        if(eg.progress >= 100) {
+                            eg.status = 'open'; eg.progress = 100; playSound('success'); playSound('siren'); 
+                            createExplosion(eg.x + eg.w/2, eg.y + eg.h/2, '#4CAF50');
+                        } break;
+                    }
+                }
+            }
+        }
+        
+        if(player.interacting) { elActionBar.style.display = 'block'; elActionFill.style.width = player.actionProgress + '%'; } 
+        else { elActionBar.style.display = 'none'; player.actionProgress = 0; }
+
+        if(state.skillCheck.active) {
+            state.skillCheck.angle += state.skillCheck.speed; elSCNeedle.style.transform = `rotate(${state.skillCheck.angle}deg)`;
+            if(state.skillCheck.angle >= 360) failSkillCheck();
+        }
+
+        for(let eg of exitGates) {
+            if(eg.status === 'open' && player.x > eg.x && player.x < eg.x + eg.w && player.y > eg.y - 20 && player.y < eg.y + eg.h + 20) state.victory = true;
+        }
+
+        // ==========================================
+        // === 살인마 AI 4.0: 시야각 + 근접 감지 ===
+        // ==========================================
+        let distToPlayer = Math.hypot(player.x - killer.x, player.y - killer.y);
+        
+        if(distToPlayer < 900) {
+            elTerror.style.opacity = 1 - (distToPlayer/900);
+            let now = Date.now(); let beatInterval = Math.max(200, distToPlayer * 1.1);
+            if(now - lastHeartbeatTime > beatInterval) { playSound('heartbeat'); lastHeartbeatTime = now; }
+        } else { elTerror.style.opacity = 0; }
+
+        // 발자국 추적
+        let foundScratch = false;
+        if(killer.state !== 'chase' && !player.isHiding) {
+            let closestMark = null; let minD = 400; 
+            for(let mark of scratchMarks) {
+                let d = Math.hypot(mark.x - killer.x, mark.y - killer.y);
+                if(d < minD) { minD = d; closestMark = mark; }
+            }
+            if(closestMark) {
+                killer.state = 'investigate'; foundScratch = true;
+                killer.angle = Math.atan2(closestMark.y - killer.y, closestMark.x - killer.x);
+                moveKiller(killer.speed); 
+            }
+        }
+
+        // 각도 계산
+        let angleToPlayer = Math.atan2(player.y - killer.y, player.x - killer.x);
+        let angleDiff = Math.abs(killer.angle - angleToPlayer);
+        if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff; // 최단 각도 보정
+
+        // [업데이트] 안광 시야 (전방 45도, 450px 이내) + 등 뒤 근접 감지 (120px 이내)
+        let inSight = (distToPlayer < 450 && angleDiff < Math.PI/4);
+        let inProximity = (distToPlayer < 120);
+
+        if(!player.isHiding && (inSight || inProximity || killer.state === 'chase')) {
+            killer.state = 'chase'; 
+            killer.angle = angleToPlayer; 
+            moveKiller(killer.speed);
+            
+            if(distToPlayer > 700) killer.state = 'patrol'; // 도망치면 포기
+        } else if(!foundScratch && killer.state !== 'chase') {
+            
+            if(state.endgame) {
+                let targetGate = exitGates[killer.targetGate];
+                let tgX = targetGate.x + targetGate.w/2; let tgY = targetGate.y + 100; 
+                if(Math.hypot(tgX - killer.x, tgY - killer.y) < 50) { killer.targetGate = killer.targetGate === 0 ? 1 : 0; }
+                killer.angle += (Math.atan2(tgY - killer.y, tgX - killer.x) - killer.angle) * 0.1;
+                moveKiller(killer.speed * 0.8);
+            } else {
+                killer.state = 'patrol';
+                if(Math.hypot(killer.targetX - killer.x, killer.targetY - killer.y) < 50) {
+                    let randGen = generators[Math.floor(Math.random() * generators.length)];
+                    killer.targetX = randGen.x + (Math.random()-0.5)*150; 
+                    killer.targetY = randGen.y + (Math.random()-0.5)*150;
+                }
+                killer.angle += (Math.atan2(killer.targetY - killer.y, killer.targetX - killer.x) - killer.angle) * 0.1;
+                moveKiller(killer.speed * 0.6);
+            }
+        }
+
+        if(!player.isHiding && distToPlayer < player.radius + killer.radius) state.gameOver = true;
+    }
+
+    function moveKiller(speedToMove) {
+        let nextKx = killer.x + Math.cos(killer.angle) * speedToMove;
+        let nextKy = killer.y + Math.sin(killer.angle) * speedToMove;
+        
+        let hitX = checkCollision(nextKx, killer.y, killer.radius);
+        let hitY = checkCollision(killer.x, nextKy, killer.radius);
+        
+        if(!hitX) killer.x = nextKx; if(!hitY) killer.y = nextKy;
+
+        if(hitX || hitY) {
+            if(hitX && !hitY) killer.y += Math.sign(Math.sin(killer.angle)) * speedToMove * 0.5;
+            if(hitY && !hitX) killer.x += Math.sign(Math.cos(killer.angle)) * speedToMove * 0.5;
+            
+            if(hitX && hitY && killer.state === 'patrol') {
+                let randGen = generators[Math.floor(Math.random() * generators.length)];
+                killer.targetX = randGen.x; killer.targetY = randGen.y;
+            }
+        }
+    }
+
+    function startSkillCheck() { state.skillCheck.active = true; state.skillCheck.angle = 0; elSC.style.display = 'block'; playSound('warning'); }
+    function handleSkillCheck() {
+        if(state.skillCheck.angle >= state.skillCheck.targetStart && state.skillCheck.angle <= state.skillCheck.targetEnd) { state.skillCheck.active = false; elSC.style.display = 'none'; playSound('success'); }
+        else failSkillCheck();
+    }
+    function failSkillCheck() {
+        state.skillCheck.active = false; elSC.style.display = 'none'; playSound('explosion');
+        for(let g of generators) {
+            if(!g.fixed && Math.hypot(player.x - g.x, player.y - g.y) < 70) {
+                g.progress = Math.max(0, g.progress - 10);
+                createExplosion(g.x, g.y, '#ff3333'); killer.targetX = g.x; killer.targetY = g.y; killer.state = 'investigate'; 
+            }
+        }
+    }
+
+    let particles = [];
+    function createExplosion(x, y, color) { for(let i=0; i<30; i++) particles.push({ x: x, y: y, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, life: 1, color: color }); }
+
+    function draw() {
+        ctx.fillStyle = '#050608'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.save(); ctx.translate(-camera.x, -camera.y);
+
+        ctx.strokeStyle = '#111318'; ctx.lineWidth = 2;
+        for(let i=0; i<WORLD_WIDTH; i+=150) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, WORLD_HEIGHT); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(WORLD_WIDTH, i); ctx.stroke(); }
+
+        for(let sm of scratchMarks) {
+            ctx.strokeStyle = `rgba(255, 69, 0, ${sm.life})`; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(sm.x - Math.cos(sm.angle)*5, sm.y - Math.sin(sm.angle)*5); ctx.lineTo(sm.x + Math.cos(sm.angle)*5, sm.y + Math.sin(sm.angle)*5); ctx.stroke();
+        }
+
+        for(let obs of obstacles) {
+            ctx.fillStyle = '#22252a'; ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+            ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+        }
+
+        for(let eg of exitGates) {
+            ctx.fillStyle = '#1a1a1a'; ctx.fillRect(eg.x, eg.y, eg.w, eg.h);
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 4; ctx.strokeRect(eg.x, eg.y, eg.w, eg.h);
+            let lightColor = eg.status === 'inactive' ? '#333' : (eg.status === 'open' ? '#00ff00' : '#ff0000');
+            ctx.fillStyle = lightColor; ctx.fillRect(eg.x + eg.w/2 - 40, eg.y + eg.h/2 - 10, 80, 20);
+            if(eg.status === 'open') { ctx.fillStyle = 'rgba(0, 255, 0, 0.2)'; ctx.fillRect(eg.x, eg.y - 20, eg.w, eg.h + 40); }
+            ctx.fillStyle = '#444'; ctx.fillRect(eg.leverX - 10, eg.leverY - 10, 20, 20);
+            ctx.fillStyle = eg.status === 'open' ? '#00ff00' : '#ff3333'; ctx.beginPath(); ctx.arc(eg.leverX, eg.leverY, 5, 0, Math.PI*2); ctx.fill();
+        }
+
+        for(let l of lockers) {
+            ctx.fillStyle = '#6b1111'; ctx.fillRect(l.x, l.y, l.w, l.h); 
+            ctx.strokeStyle = '#2b0000'; ctx.lineWidth = 3; ctx.strokeRect(l.x, l.y, l.w, l.h);
+            ctx.fillStyle = '#111'; ctx.fillRect(l.x + l.w/2 - 2, l.y + 10, 4, l.h - 20); 
+        }
+
+        for(let g of generators) {
+            ctx.save(); ctx.translate(g.x, g.y);
+            ctx.fillStyle = '#2a2a2a'; ctx.fillRect(-30, -25, 60, 50);
+            ctx.fillStyle = g.fixed ? '#555' : '#333'; ctx.fillRect(-20, -15, 40, 30);
+            ctx.fillStyle = '#b8860b'; ctx.fillRect(-25, 5, 10, 20); ctx.fillRect(15, 5, 10, 20);
+            
+            ctx.fillStyle = '#111'; ctx.fillRect(-15, -35, 30, 10);
+            let lightsOn = g.fixed ? 4 : Math.floor((g.progress / 100) * 4);
+            for(let i=0; i<4; i++) {
+                ctx.fillStyle = (i < lightsOn) ? '#ffeb3b' : '#000';
+                ctx.beginPath(); ctx.arc(-9 + i*6, -30, 2.5, 0, Math.PI*2); ctx.fill();
+            }
+            if(!g.fixed && g.progress > 0) {
+                let pistonY = Math.sin(Date.now() / 100) * 3;
+                ctx.fillStyle = '#888'; ctx.fillRect(-10, -15 + pistonY, 20, 10);
+            }
+            ctx.restore();
+        }
+
+        for(let i=particles.length-1; i>=0; i--) {
+            let p = particles[i]; p.x += p.vx; p.y += p.vy; p.life -= 0.03;
+            ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
+            ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1.0;
+            if(p.life <= 0) particles.splice(i, 1);
+        }
+
+        ctx.fillStyle = '#1a1a1a'; 
+        ctx.beginPath(); ctx.ellipse(killer.x, killer.y, killer.radius * 1.6, killer.radius * 1.1, killer.angle, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#0f0f0f'; ctx.beginPath(); ctx.arc(killer.x, killer.y, killer.radius * 0.8, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#8b0000'; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(killer.x, killer.y); ctx.lineTo(killer.x + Math.cos(killer.angle + Math.PI/3)*45, killer.y + Math.sin(killer.angle + Math.PI/3)*45); ctx.stroke();
+        ctx.fillStyle = '#ff0000'; ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.arc(killer.x + Math.cos(killer.angle)*14 - Math.sin(killer.angle)*7, killer.y + Math.sin(killer.angle)*14 + Math.cos(killer.angle)*7, 3, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(killer.x + Math.cos(killer.angle)*14 + Math.sin(killer.angle)*7, killer.y + Math.sin(killer.angle)*14 - Math.cos(killer.angle)*7, 3, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if(!player.isHiding) {
+            let bobOffset = Math.sin(player.walkCycle) * (keys.shift ? 4 : 2); 
+            ctx.fillStyle = '#444'; ctx.fillRect(player.x - 12, player.y + bobOffset + 5, 24, 15);
+            ctx.fillStyle = '#0f3460'; ctx.beginPath(); ctx.arc(player.x, player.y + bobOffset, player.radius, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#e0e0e0'; 
+            ctx.beginPath(); ctx.arc(player.x - 12, player.y + bobOffset, player.radius*0.4, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(player.x + 12, player.y + bobOffset, player.radius*0.4, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#f5d0b5'; ctx.beginPath(); ctx.arc(player.x, player.y + bobOffset - 5, player.radius * 0.6, 0, Math.PI*2); ctx.fill();
+        }
+
+        ctx.restore();
+
+        fogCtx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
+        fogCtx.fillStyle = player.isHiding ? 'rgba(0, 0, 0, 0.85)' : 'rgba(0, 0, 0, 0.75)';
+        fogCtx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+        fogCtx.globalCompositeOperation = 'destination-out';
+
+        let pRadius = player.isHiding ? 150 : 400;
+        let pGrad = fogCtx.createRadialGradient(canvas.width/2, canvas.height/2, 20, canvas.width/2, canvas.height/2, pRadius);
+        pGrad.addColorStop(0, 'rgba(255, 255, 255, 1)'); pGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        fogCtx.fillStyle = pGrad; fogCtx.beginPath(); fogCtx.arc(canvas.width/2, canvas.height/2, pRadius, 0, Math.PI*2); fogCtx.fill();
+
+        for(let eg of exitGates) {
+            let sx = (eg.x + eg.w/2) - camera.x; let sy = (eg.y + eg.h/2) - camera.y;
+            if(sx > -300 && sx < canvas.width + 300 && sy > -300 && sy < canvas.height + 300) {
+                let doorGrad = fogCtx.createRadialGradient(sx, sy, 50, sx, sy, 350);
+                doorGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)'); doorGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                fogCtx.fillStyle = doorGrad; fogCtx.beginPath(); fogCtx.arc(sx, sy, 350, 0, Math.PI*2); fogCtx.fill();
+            }
+        }
+
+        for(let g of generators) {
+            if(g.fixed) {
+                let sx = g.x - camera.x; let sy = g.y - camera.y;
+                if(sx > -300 && sx < canvas.width + 300 && sy > -300 && sy < canvas.height + 300) {
+                    let gGrad = fogCtx.createRadialGradient(sx, sy, 30, sx, sy, 250);
+                    gGrad.addColorStop(0, 'rgba(255, 255, 255, 1)'); gGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    fogCtx.fillStyle = gGrad; fogCtx.beginPath(); fogCtx.arc(sx, sy, 250, 0, Math.PI*2); fogCtx.fill();
+                }
+            }
+        }
+        
+        let kx = killer.x - camera.x; let ky = killer.y - camera.y;
+        if(kx > -500 && kx < canvas.width + 500 && ky > -500 && ky < canvas.height + 500) {
+            fogCtx.globalCompositeOperation = 'source-over';
+            let stainGrad = fogCtx.createRadialGradient(kx, ky, 10, kx, ky, 450);
+            stainGrad.addColorStop(0, 'rgba(255, 0, 0, 0.4)'); stainGrad.addColorStop(1, 'rgba(255, 0, 0, 0)');
+            fogCtx.fillStyle = stainGrad; fogCtx.beginPath();
+            fogCtx.moveTo(kx, ky); fogCtx.arc(kx, ky, 450, killer.angle - Math.PI/4, killer.angle + Math.PI/4);
+            fogCtx.lineTo(kx, ky); fogCtx.fill();
+            fogCtx.globalCompositeOperation = 'destination-out';
+        }
+
+        fogCtx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(fogCanvas, 0, 0);
+
+        if(player.isHiding) {
+            ctx.fillStyle = '#ffeb3b'; ctx.font = 'bold 24px Segoe UI'; ctx.textAlign = 'center'; ctx.shadowColor = 'rgba(0,0,0,1)'; ctx.shadowBlur = 6;
+            ctx.fillText('[ F ] 키를 눌러 밖으로 나가세요', canvas.width/2, canvas.height - 150); ctx.shadowBlur = 0;
+        }
+
+        if(state.gameOver || state.victory) {
+            ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = state.victory ? '#00ff00' : '#ff3333';
+            ctx.font = 'bold 50px Segoe UI'; ctx.textAlign = 'center';
+            ctx.fillText(state.victory ? '성공적으로 탈출했습니다! (졸업 확정)' : '재수강 확정... 교수님께 잡혔습니다.', canvas.width/2, canvas.height/2);
+            ctx.font = '20px Segoe UI'; ctx.fillStyle = '#ccc';
+            ctx.fillText('새로고침(F5)하여 다시 시작', canvas.width/2, canvas.height/2 + 50);
+        }
+    }
+
+    function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff'; ctx.font = '24px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('화면을 한 번 클릭한 뒤, 아무 키나 누르면 시작됩니다!', canvas.width/2, canvas.height/2);
+
+    let started = false; 
+    const bgm = document.getElementById('bgmAudio');
+    // 볼륨 30%로 낮춤
+    bgm.volume = 0.3; 
+    
+    window.addEventListener('keydown', () => { 
+        if(!started) { 
+            started = true; 
+            bgm.play().catch(e => console.log("BGM 재생 실패 (브라우저 정책)"));
+            loop(); 
+        } 
+    });
+</script>
+</body>
+</html>
