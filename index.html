@@ -80,7 +80,7 @@ function playSound(type) {
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(55, audioCtx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(36, audioCtx.currentTime + 0.18);
-        gain.gain.setValueAtTime(0.38, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.58, audioCtx.currentTime);
         gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.18);
         osc.start(); osc.stop(audioCtx.currentTime + 0.18);
     } else if(type === 'success') {
@@ -288,6 +288,72 @@ function buildStructureCandidate() {
     return buildDStructure(Math.random() * (WORLD_WIDTH - w - 160) + 80, Math.random() * (WORLD_HEIGHT - h - 160) + 80, w, h, Math.floor(Math.random() * 4));
 }
 
+function buildLineVaultStructure(x, y, horizontal = true) {
+    const thickness = 28;
+    const length = horizontal ? (Math.random() * 180 + 260) : (Math.random() * 180 + 260);
+    const seg = horizontal ? { x, y, w:length, h:thickness } : { x, y, w:thickness, h:length };
+    const inset = 68;
+    const vault = horizontal
+        ? { orientation:'horizontal', x1:x + inset, y1:y + thickness / 2, x2:x + length - inset, y2:y + thickness / 2 }
+        : { orientation:'vertical', x1:x + thickness / 2, y1:y + inset, x2:x + thickness / 2, y2:y + length - inset };
+    vault.cx = (vault.x1 + vault.x2) / 2;
+    vault.cy = (vault.y1 + vault.y2) / 2;
+    vault.length = Math.hypot(vault.x2 - vault.x1, vault.y2 - vault.y1);
+    return { kind:'lineVault', bbox:structureBBox([seg]), segments:[seg], vault };
+}
+
+function canPlaceAnchorLocker(candidate, linkedGenerator) {
+    if(!isPointFairForSpawn(candidate.x + candidate.w / 2, candidate.y + candidate.h / 2, 44)) return false;
+    for(const g of generators) {
+        if(g === linkedGenerator) continue;
+        if(circleRectOverlap(g.x, g.y, GENERATOR_WORKSPACE, candidate, 24)) return false;
+    }
+    for(const l of lockers) {
+        if(Math.hypot((l.x + l.w/2) - (candidate.x + candidate.w/2), (l.y + l.h/2) - (candidate.y + candidate.h/2)) < LOCKER_MIN_DISTANCE) return false;
+    }
+    for(const v of vaults) {
+        if(circleRectOverlap(v.cx, v.cy, 90, candidate, 20)) return false;
+    }
+    return true;
+}
+
+function addGeneratorLockers() {
+    const angles = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI / 4, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
+    for(const g of generators) {
+        let placed = false;
+        for(const radius of [120, 132, 146, 160]) {
+            for(const angle of angles) {
+                const cx = g.x + Math.cos(angle) * radius;
+                const cy = g.y + Math.sin(angle) * radius;
+                const candidate = { x: cx - 23, y: cy - 34, w:46, h:68 };
+                if(canPlaceAnchorLocker(candidate, g)) {
+                    lockers.push(candidate);
+                    placed = true;
+                    break;
+                }
+            }
+            if(placed) break;
+        }
+    }
+}
+
+function addExtraVaultStructures(count) {
+    let added = 0;
+    let attempts = 0;
+    while(added < count && attempts < 600) {
+        attempts++;
+        const horizontal = Math.random() < 0.5;
+        const x = Math.random() * (WORLD_WIDTH - 520) + 80;
+        const y = Math.random() * (WORLD_HEIGHT - 520) + 80;
+        const candidate = buildLineVaultStructure(x, y, horizontal);
+        if(!canPlaceStructure(candidate)) continue;
+        structures.push(candidate);
+        for(const seg of candidate.segments) obstacles.push(seg);
+        vaults.push(candidate.vault);
+        added++;
+    }
+}
+
 function canPlaceStructure(candidate) {
     if(candidate.bbox.x < 70 || candidate.bbox.y < 70 || candidate.bbox.x + candidate.bbox.w > WORLD_WIDTH - 70 || candidate.bbox.y + candidate.bbox.h > WORLD_HEIGHT - 70) return false;
     for(const rect of reservedRects) {
@@ -362,6 +428,8 @@ function generateWorld() {
             if(canPlaceGenerator(c)) generators.push(c);
         }
 
+        addGeneratorLockers();
+
         const zones = [
             { x:120, y:120, w:1180, h:1180 },
             { x:1700, y:120, w:1180, h:1180 },
@@ -377,6 +445,8 @@ function generateWorld() {
             const c = { x: Math.random() * (zone.w - 90) + zone.x, y: Math.random() * (zone.h - 110) + zone.y, w:46, h:68 };
             if(canPlaceLocker(c)) lockers.push(c);
         }
+
+        addExtraVaultStructures(2);
     } while((generators.length < 7 || lockers.length < 15 || structures.length < 20 || !ensureFairStarts()) && tries < 20);
 }
 
@@ -803,8 +873,8 @@ function updateKiller(dt) {
     const inSight = canSeePlayer && distToPlayer < 460 && angleDiff < Math.PI / 4;
     const inProximity = !player.isHiding && distToPlayer < 120;
 
-    if(distToPlayer < 900) {
-        elTerror.style.opacity = 1 - (distToPlayer / 900);
+    if(distToPlayer < 1350) {
+        elTerror.style.opacity = 1 - (distToPlayer / 1350);
         const now = performance.now();
         const beatInterval = Math.max(190, distToPlayer * 1.05);
         if(now - lastHeartbeatTime > beatInterval) {
@@ -847,7 +917,7 @@ function updateKiller(dt) {
         const ty = (!player.isHiding || !killer.lastSeen) ? player.y : killer.lastSeen.y;
         if(!tryStartKillerVault(tx, ty)) {
             faceTarget(killer, tx, ty, 8, dt);
-            moveEntity(killer, killer.speed * 1.12, dt);
+            moveEntity(killer, killer.speed * 1.0864, dt);
         }
         if((player.isHiding || !inSight) && killer.lastSeen && Math.hypot(killer.lastSeen.x - killer.x, killer.lastSeen.y - killer.y) < 60) {
             killer.state = 'investigate';
