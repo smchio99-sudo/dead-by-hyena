@@ -276,7 +276,8 @@ function initGame(room) {
     over: false,
     winner: null,      // 'survivors' | 'killer'
     lastTick: Date.now(),
-    inputs: {},        // playerId → { w,a,s,d,shift,e,f, mouseAngle }
+    inputs: {},
+    scratchMarks: [],
   };
 }
 
@@ -444,7 +445,7 @@ function tickGame(room, dt) {
     s.interacting=false;
 
     // Cabinet toggle
-    if(inp.f && !inp._fWas) {
+    if(inp.fJust) {
       if(s.isHiding) {
         const locker=s.currentLocker;
         s.isHiding=false; s.currentLocker=null; s.cabCooldown=10;
@@ -466,7 +467,18 @@ function tickGame(room, dt) {
     const nx=s.x+dx*spd*dt, ny=s.y+dy*spd*dt;
     if(!checkCollision(nx,s.y,s.radius,obs)) s.x=clamp(nx,s.radius,WORLD_WIDTH-s.radius);
     if(!checkCollision(s.x,ny,s.radius,obs)) s.y=clamp(ny,s.radius,WORLD_HEIGHT-s.radius);
-    if(dx!==0||dy!==0){ s.walkCycle+=(inp.shift?7.5:4)*dt; s.angle=Math.atan2(dy,dx); }
+    if(dx!==0||dy!==0){
+      s.walkCycle+=(inp.shift?7.5:4)*dt;
+      s.angle=Math.atan2(dy,dx);
+      s.isRunning=inp.shift;
+      if(inp.shift){
+        s.scratchTimer=(s.scratchTimer||0)+dt;
+        while(s.scratchTimer>=0.06){
+          s.scratchTimer-=0.06;
+          game.scratchMarks.push({x:s.x+(Math.random()-0.5)*22,y:s.y+(Math.random()-0.5)*22,angle:Math.atan2(dy,dx)+(Math.random()-0.5),t:Date.now()});
+        }
+      } else { s.scratchTimer=0; }
+    } else { s.isRunning=false; }
 
     // E - vault or generator repair or rescue or exit
     if(inp.e) {
@@ -672,9 +684,12 @@ function broadcastState(room) {
   const game=room.game;
   const survivorStates={};
   for(const [id,s] of Object.entries(game.survivors)) {
-    survivorStates[id]={id,x:s.x,y:s.y,angle:s.angle,hp:s.hp,caged:s.caged,dead:s.dead,escaped:s.escaped,invincible:s.invincible>0,hitBoost:s.hitBoost>0,isHiding:s.isHiding,interacting:s.interacting,actionProgress:s.actionProgress,cageTimer:s.cageTimer};
+    survivorStates[id]={id,x:s.x,y:s.y,angle:s.angle,walkCycle:s.walkCycle||0,hp:s.hp,caged:s.caged,dead:s.dead,escaped:s.escaped||false,invincible:s.invincible>0,hitBoost:s.hitBoost>0,isHiding:s.isHiding,interacting:s.interacting,actionProgress:s.actionProgress,cageTimer:s.cageTimer||0,cabCooldown:s.cabCooldown||0,isRunning:s.isRunning||false};
   }
   const cageStates=game.cages.map(c=>({id:c.id,x:c.x,y:c.y,survivorId:c.survivorId,timer:c.timer,camping:c.camping}));
+  const now_ms=Date.now();
+  game.scratchMarks=game.scratchMarks.filter(m=>now_ms-m.t<3000);
+  const scratchStates=game.scratchMarks.map(m=>({x:m.x,y:m.y,angle:m.angle,life:1-(now_ms-m.t)/3000}));
   broadcast(room,{
     type:'state',
     killer:{x:game.killer.x,y:game.killer.y,angle:game.killer.angle,state:game.killer.state,vaulting:!!game.killer.vaultAction},
@@ -684,6 +699,7 @@ function broadcastState(room) {
     generators:room.world.generators.map(g=>({x:g.x,y:g.y,progress:g.progress,fixed:g.fixed})),
     exitGates:room.world.exitGates,
     endgame:game.endgame,
+    scratchMarks:scratchStates,
   });
 }
 
@@ -797,11 +813,34 @@ wss.on('connection', (ws) => {
 
       case 'input':
         if(room.phase==='playing'&&room.game) {
-          if(!room.game.inputs[client.id]) room.game.inputs[client.id]={};
-          const prev=room.game.inputs[client.id];
-          room.game.inputs[client.id]={...msg.input,_fWas:prev.f,human:true};
-          // Mark killer as human-controlled
-          if(client.role==='killer') room.game.inputs[client.id].human=true;
+          const prev=room.game.inputs[client.id]||{};
+          const inp=msg.input;
+          // fJust = pressed this frame but not last frame
+          inp.fJust = inp.f && !prev.f;
+          inp.human = true;
+          room.game.inputs[client.id]=inp;
+          // Killer: check locker with fJust
+          if(client.role==='killer' && inp.fJust && room.game) {
+            const k=room.game.killer;
+            for(const l of room.world.lockers){
+              if(k.x>l.x-50&&k.x<l.x+l.w+50&&k.y>l.y-50&&k.y<l.y+l.h+50){
+                // Check if survivor hiding in this locker
+                for(const [sid,surv] of Object.entries(room.game.survivors)){
+                  if(surv.isHiding && surv.currentLocker &&
+                     Math.abs(surv.currentLocker.x-l.x)<1 && Math.abs(surv.currentLocker.y-l.y)<1){
+                    // Kill them
+                    surv.isHiding=false; surv.currentLocker=null;
+                    const cage=spawnCage(room.game,sid,room.world);
+                    broadcast(room,{type:'survivorCaged',survivorId:sid,cage:{id:cage.id,x:cage.x,y:cage.y}});
+                    checkVictory(room,room.game,room.world);
+                    break;
+                  }
+                }
+                broadcast(room,{type:'lockerCheck',x:l.x+l.w/2,y:l.y+l.h/2});
+                break;
+              }
+            }
+          }
         }
         break;
 
