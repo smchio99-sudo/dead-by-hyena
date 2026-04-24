@@ -416,10 +416,11 @@ function updateCardAvailability(playerList) {
 window.selectRole = function(role) {
   selectedRole = role;
   send({ type:'selectRole', role });
-}
+};
 
 document.getElementById('confirmRoleBtn').addEventListener('click', () => {
   if(selectedRole) send({ type:'selectRole', role:selectedRole });
+  else if(myRole) send({ type:'selectRole', role:myRole });
 });
 
 // ── Game setup ────────────────────────────────────────────────────────────
