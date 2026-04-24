@@ -413,7 +413,7 @@ function updateCardAvailability(playerList) {
   }
 }
 
-function selectRole(role) {
+window.selectRole = function(role) {
   selectedRole = role;
   send({ type:'selectRole', role });
 }
