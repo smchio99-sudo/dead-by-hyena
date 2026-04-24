@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Project: DEADLINE — Multiplayer</title>
+<title>Project: DEADHY-ENA — Multiplayer</title>
 <style>
 /* ── Base ── */
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -114,7 +114,7 @@ body{background:#0a0c10;color:#d7dde3;font-family:'Segoe UI',sans-serif;overflow
   <div class="title-bg"><div class="title-scanlines"></div><div class="title-glow"></div></div>
   <div class="title-main">
     <div class="title-sub">Project</div>
-    <div class="title-logo">DEAD<span>LINE</span></div>
+    <div class="title-logo">DEAD<span>HY-ENA</span></div>
     <div class="title-version">2 vs 1 멀티플레이 — 생존 호러</div>
   </div>
 
@@ -204,23 +204,49 @@ body{background:#0a0c10;color:#d7dde3;font-family:'Segoe UI',sans-serif;overflow
 
 // ── Sprite images ─────────────────────────────────────────────────────────
 const SPRITES = {};
+function removeBlackBg(imageData, threshold) {
+  // 모서리에서 flood fill로 연결된 배경만 제거 (내부 어두운 부분 보존)
+  const d = imageData.data;
+  const w = imageData.width, h = imageData.height;
+  const visited = new Uint8Array(w * h);
+  const queue = [];
+  function isDark(x, y) {
+    const pi = (y * w + x) * 4;
+    return d[pi] < threshold && d[pi+1] < threshold && d[pi+2] < threshold;
+  }
+  function seed(x, y) {
+    const idx = y * w + x;
+    if(!visited[idx] && isDark(x, y)) { visited[idx] = 1; queue.push(x, y); }
+  }
+  // 4면 테두리에서 시작
+  for(let x = 0; x < w; x++) { seed(x, 0); seed(x, h-1); }
+  for(let y = 0; y < h; y++) { seed(0, y); seed(w-1, y); }
+  // BFS
+  let qi = 0;
+  while(qi < queue.length) {
+    const x = queue[qi++], y = queue[qi++];
+    d[(y * w + x) * 4 + 3] = 0; // 투명
+    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    for(const [dx,dy] of dirs) {
+      const nx=x+dx, ny=y+dy;
+      if(nx>=0&&nx<w&&ny>=0&&ny<h) {
+        const nidx=ny*w+nx;
+        if(!visited[nidx] && isDark(nx,ny)) { visited[nidx]=1; queue.push(nx,ny); }
+      }
+    }
+  }
+}
 function loadSprite(key, mime, b64) {
   const img = new Image();
   img.onload = function() {
-    // 오프스크린 캔버스로 검은 배경 제거
     const oc = document.createElement('canvas');
     oc.width = img.naturalWidth; oc.height = img.naturalHeight;
     const octx = oc.getContext('2d');
     octx.drawImage(img, 0, 0);
     const imageData = octx.getImageData(0, 0, oc.width, oc.height);
-    const d = imageData.data;
-    for(let i = 0; i < d.length; i += 4) {
-      const r=d[i], g=d[i+1], b=d[i+2];
-      // 검은색/거의 검은색 픽셀 → 투명
-      if(r < 25 && g < 25 && b < 25) d[i+3] = 0;
-    }
+    removeBlackBg(imageData, 30); // 테두리에서 연결된 검은 배경만 제거
     octx.putImageData(imageData, 0, 0);
-    SPRITES[key] = oc; // Image 대신 처리된 Canvas 저장
+    SPRITES[key] = oc;
   };
   img.src = 'data:' + mime + ';base64,' + b64;
 }
@@ -857,13 +883,17 @@ function drawKiller() {
   const kx=k.x, ky=k.y, ka=k.angle;
   const KILLER_R=24;
 
-  // walkCycle 업데이트 (이동 중이면 증가)
-  const killerMoving = k.state==='chase'||k.state==='patrol'||k.state==='investigate';
-  if(killerMoving) killerWalkCycle.val+=5*(1/60);
+  // 실제 위치 변화로 이동 감지
+  if(!killerWalkCycle.prevX) killerWalkCycle.prevX=kx;
+  if(!killerWalkCycle.prevY) killerWalkCycle.prevY=ky;
+  const killerMoved = Math.hypot(kx-killerWalkCycle.prevX, ky-killerWalkCycle.prevY) > 0.8;
+  killerWalkCycle.prevX=kx; killerWalkCycle.prevY=ky;
+  if(killerMoved) killerWalkCycle.val+=5*(1/60);
+  else killerWalkCycle.val=0; // 멈추면 idle로 리셋
 
-  // 프레임 결정: 0=idle, 1=walk1, 2=walk2 (0→1→2→1 루프)
+  // 프레임: 멈춤=idle, 이동=walk1↔walk2
   let killerFrame = 0;
-  if(killerMoving) {
+  if(killerMoved) {
     const t = Math.floor(killerWalkCycle.val) % 2;
     killerFrame = t===0 ? 1 : 2;
   }
