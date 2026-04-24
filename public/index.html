@@ -514,10 +514,18 @@ canvas.addEventListener('mousemove', (e)=>{
 });
 
 let fLastSent=false;
+let eLastSent=false;
 function sendInput() {
   if(!ws||ws.readyState!==1) return;
-  const input = { w:keys.w,a:keys.a,s:keys.s,d:keys.d,e:keys.e,f:keys.f,shift:keys.shift,moving:(keys.w||keys.a||keys.s||keys.d),angle:mouseAngle };
+  const input = {
+    w:keys.w, a:keys.a, s:keys.s, d:keys.d,
+    e:keys.e, f:keys.f, shift:keys.shift,
+    moving:(keys.w||keys.a||keys.s||keys.d),
+    angle:mouseAngle,
+    vault: myRole==='killer' && keys.e && !eLastSent,  // 살인마 창틀 E (한 번만)
+  };
   send({ type:'input', input });
+  eLastSent = keys.e;
   fLastSent=keys.f;
 }
 
@@ -549,6 +557,14 @@ function startGame(msg) {
   function loop(ts) {
     const dt=Math.min(0.05,(ts-lastFrame)/1000); lastFrame=ts;
     sendInput();
+    // walkCycle 로컬 업데이트
+    for(const [id,s] of Object.entries(gameState.survivors)) {
+      if(!walkCycles[id]) walkCycles[id]=0;
+      if(!s.dead && !s.isHiding && !s.caged) {
+        if(s.isRunning) walkCycles[id]+=7.5*dt;
+        else if(s.interacting===false && (id===myId?(keys.w||keys.a||keys.s||keys.d):true)) walkCycles[id]+=4*dt;
+      }
+    }
     if(scState.active){ scState.angle+=scState.speedDeg*dt; document.getElementById('sc-needle').style.transform=`rotate(${scState.angle}deg)`; if(scState.angle>=360) failSkillCheck(); }
     updateHUD(dt);
     draw();
@@ -556,6 +572,9 @@ function startGame(msg) {
   }
   rafId=requestAnimationFrame(loop);
 }
+
+// ── 로컬 walkCycle 관리 ──
+const walkCycles = {}; // id → number
 
 // ── Server state handler ───────────────────────────────────────────────────
 function onServerState(msg) {
@@ -769,16 +788,18 @@ function drawCages() {
 }
 function drawKiller() {
   const k=gameState.killer; if(!k) return;
-  ctx.fillStyle='#1a1a1a'; ctx.beginPath(); ctx.ellipse(k.x,k.y,k.radius*1.6,k.radius*1.1,k.angle,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#0f0f0f'; ctx.beginPath(); ctx.arc(k.x,k.y,k.radius*0.8,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='#8b0000'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(k.x,k.y); ctx.lineTo(k.x+Math.cos(k.angle+Math.PI/3)*45,k.y+Math.sin(k.angle+Math.PI/3)*45); ctx.stroke();
+  const kx=k.x, ky=k.y, ka=k.angle;
+  const KILLER_R=24;
+  ctx.fillStyle='#1a1a1a'; ctx.beginPath(); ctx.ellipse(kx,ky,KILLER_R*1.6,KILLER_R*1.1,ka,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#0f0f0f'; ctx.beginPath(); ctx.arc(kx,ky,KILLER_R*0.8,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#8b0000'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(kx,ky); ctx.lineTo(kx+Math.cos(ka+Math.PI/3)*45,ky+Math.sin(ka+Math.PI/3)*45); ctx.stroke();
   ctx.fillStyle='#ff0000'; ctx.shadowColor='#ff0000'; ctx.shadowBlur=10;
-  ctx.beginPath(); ctx.arc(k.x+Math.cos(k.angle)*14-Math.sin(k.angle)*7,k.y+Math.sin(k.angle)*14+Math.cos(k.angle)*7,3,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(k.x+Math.cos(k.angle)*14+Math.sin(k.angle)*7,k.y+Math.sin(k.angle)*14-Math.cos(k.angle)*7,3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(kx+Math.cos(ka)*14-Math.sin(ka)*7,ky+Math.sin(ka)*14+Math.cos(ka)*7,3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(kx+Math.cos(ka)*14+Math.sin(ka)*7,ky+Math.sin(ka)*14-Math.cos(ka)*7,3,0,Math.PI*2); ctx.fill();
   ctx.shadowBlur=0;
   if(myId && rolesMap[myId]==='killer') {
     ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
-    ctx.beginPath(); ctx.arc(k.x,k.y,k.radius+6,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(kx,ky,KILLER_R+6,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
   }
 }
 // 생존자 반지름 상수 (서버에서 안보냄)
@@ -793,8 +814,9 @@ function drawSurvivors() {
     if(s.isHiding) continue;
     if(s.caged) continue;
     const isMe=id===myId;
-    const wc = (s.walkCycle||0);
-    const moving = s.isRunning !== undefined ? s.isRunning : false;
+    const rx = s.x, ry = s.y;
+    const wc = walkCycles[id] || 0;
+    const moving = s.isRunning || false;
     const bob = Math.sin(wc) * (moving ? 4 : 2);
 
     // 내 캐릭터 발자국 생성 (로컬)
@@ -803,50 +825,40 @@ function drawSurvivors() {
       if(now-lastScratchTime>60){
         lastScratchTime=now;
         const ang=Math.atan2((keys.s?1:0)-(keys.w?1:0),(keys.d?1:0)-(keys.a?1:0));
-        localScratchMarks.push({x:s.x+(Math.random()-0.5)*22,y:s.y+(Math.random()-0.5)*22,angle:ang+(Math.random()-0.5),born:now});
+        localScratchMarks.push({x:rx+(Math.random()-0.5)*22,y:ry+(Math.random()-0.5)*22,angle:ang+(Math.random()-0.5),born:now});
       }
     }
 
     if(s.invincible && Math.floor(Date.now()/100)%2===0) continue;
     ctx.globalAlpha = s.invincible ? 0.7 : 1;
 
-    // 원본과 동일한 사람 모양
+    // 원본과 동일한 사람 모양 (보간 위치 rx,ry 사용)
     const bodyColor = isMe ? '#244a6b' : '#1a5a2a';
-    // 몸통 (사각형)
     ctx.fillStyle='#49515b';
-    ctx.fillRect(s.x-12, s.y+bob+5, 24, 15);
-    // 바디 원
+    ctx.fillRect(rx-12, ry+bob+5, 24, 15);
     ctx.fillStyle=bodyColor;
-    ctx.beginPath(); ctx.arc(s.x, s.y+bob, SR, 0, Math.PI*2); ctx.fill();
-    // 팔 (양쪽 흰 원)
+    ctx.beginPath(); ctx.arc(rx, ry+bob, SR, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle='#e0e0e0';
-    ctx.beginPath(); ctx.arc(s.x-12, s.y+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(s.x+12, s.y+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
-    // 머리
+    ctx.beginPath(); ctx.arc(rx-12, ry+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(rx+12, ry+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle='#f5d0b5';
-    ctx.beginPath(); ctx.arc(s.x, s.y+bob-5, SR*0.6, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(rx, ry+bob-5, SR*0.6, 0, Math.PI*2); ctx.fill();
 
-    // 피격 속도 부스트 오라
     if(s.hitBoost){
       ctx.strokeStyle='rgba(255,136,68,.8)'; ctx.lineWidth=3;
-      ctx.beginPath(); ctx.arc(s.x,s.y+bob,SR+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(rx,ry+bob,SR+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke();
     }
-    // 무적 구조 후 초록빛
     if(s.invincible){
       ctx.strokeStyle='rgba(76,255,144,.6)'; ctx.lineWidth=3;
-      ctx.beginPath(); ctx.arc(s.x,s.y+bob,SR+8,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(rx,ry+bob,SR+8,0,Math.PI*2); ctx.stroke();
     }
-
-    // 이름표
     ctx.fillStyle=isMe?'#ffe45a':'#fff';
     ctx.font='bold 11px Segoe UI'; ctx.textAlign='center';
     const name=(players[id]&&players[id].name)||'생존자';
-    ctx.fillText(name, s.x, s.y+bob-SR-8);
-
-    // 내 캐릭터 점선 테두리
+    ctx.fillText(name, rx, ry+bob-SR-8);
     if(isMe){
       ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([3,3]);
-      ctx.beginPath(); ctx.arc(s.x,s.y+bob,SR+4,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(rx,ry+bob,SR+4,0,Math.PI*2); ctx.stroke();
       ctx.setLineDash([]);
     }
     ctx.globalAlpha=1;
