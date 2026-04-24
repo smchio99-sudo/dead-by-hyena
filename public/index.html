@@ -184,6 +184,7 @@ body{background:#0a0c10;color:#d7dde3;font-family:'Segoe UI',sans-serif;overflow
 
 <!-- ── Game UI ── -->
 <audio id="bgmAudio" src="bgm.mp4" loop></audio>
+<audio id="titleAudio" src="title.mp3" loop></audio>
 <canvas id="gameCanvas"></canvas>
 <div id="ui-layer" style="display:none">
   <div id="objective" class="hud">발전기 수리: <span id="gen-count">0</span> / 5</div>
@@ -540,7 +541,9 @@ function startGame(msg) {
   document.getElementById('charSelectScreen').classList.add('hidden');
   document.getElementById('ui-layer').style.display='block';
   if(charSelectInterval){ clearInterval(charSelectInterval); charSelectInterval=null; }
-  // BGM 재생
+  // 타이틀 BGM 끄고 게임 BGM 켜기
+  const titleAudio=document.getElementById('titleAudio');
+  if(titleAudio){ titleAudio.pause(); titleAudio.currentTime=0; }
   const bgm=document.getElementById('bgmAudio');
   if(bgm){ bgm.volume=0.3; bgm.play().catch(()=>{}); }
 
@@ -830,38 +833,45 @@ function drawSurvivors() {
     }
 
     if(s.invincible && Math.floor(Date.now()/100)%2===0) continue;
+    ctx.save(); // ctx 상태 격리 - 다른 생존자에 영향 안주도록
     ctx.globalAlpha = s.invincible ? 0.7 : 1;
+    ctx.shadowBlur = 0; ctx.setLineDash([]);
 
-    // 원본과 동일한 사람 모양 (보간 위치 rx,ry 사용)
     const bodyColor = isMe ? '#244a6b' : '#1a5a2a';
+    // 몸통
     ctx.fillStyle='#49515b';
     ctx.fillRect(rx-12, ry+bob+5, 24, 15);
+    // 바디 원
     ctx.fillStyle=bodyColor;
     ctx.beginPath(); ctx.arc(rx, ry+bob, SR, 0, Math.PI*2); ctx.fill();
+    // 팔
     ctx.fillStyle='#e0e0e0';
     ctx.beginPath(); ctx.arc(rx-12, ry+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(rx+12, ry+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
+    // 머리
     ctx.fillStyle='#f5d0b5';
     ctx.beginPath(); ctx.arc(rx, ry+bob-5, SR*0.6, 0, Math.PI*2); ctx.fill();
-
+    // 피격 오라
     if(s.hitBoost){
       ctx.strokeStyle='rgba(255,136,68,.8)'; ctx.lineWidth=3;
       ctx.beginPath(); ctx.arc(rx,ry+bob,SR+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke();
     }
+    // 무적 오라
     if(s.invincible){
       ctx.strokeStyle='rgba(76,255,144,.6)'; ctx.lineWidth=3;
       ctx.beginPath(); ctx.arc(rx,ry+bob,SR+8,0,Math.PI*2); ctx.stroke();
     }
+    // 이름표
     ctx.fillStyle=isMe?'#ffe45a':'#fff';
     ctx.font='bold 11px Segoe UI'; ctx.textAlign='center';
     const name=(players[id]&&players[id].name)||'생존자';
     ctx.fillText(name, rx, ry+bob-SR-8);
+    // 내 테두리
     if(isMe){
       ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([3,3]);
       ctx.beginPath(); ctx.arc(rx,ry+bob,SR+4,0,Math.PI*2); ctx.stroke();
-      ctx.setLineDash([]);
     }
-    ctx.globalAlpha=1;
+    ctx.restore(); // 상태 복원
   }
 }
 function drawScratchMarks() {
@@ -983,6 +993,13 @@ function draw() {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
+// 타이틀 BGM: 첫 클릭/키 입력시 재생
+function startTitleBGM() {
+  const t=document.getElementById('titleAudio');
+  if(t){ t.volume=0.35; t.play().catch(()=>{}); }
+}
+document.addEventListener('click', startTitleBGM, {once:true});
+document.addEventListener('keydown', startTitleBGM, {once:true});
 connectWS();
 
 })();
