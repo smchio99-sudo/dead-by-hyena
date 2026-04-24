@@ -184,6 +184,8 @@ body{background:#0a0c10;color:#d7dde3;font-family:'Segoe UI',sans-serif;overflow
 
 <!-- ── Game UI ── -->
 <audio id="bgmAudio" src="bgm.mp4" loop></audio>
+<audio id="doorAudio" src="door.mp3" preload="auto"></audio>
+<audio id="cageAudio" src="cage.mp3" preload="auto"></audio>
 <audio id="titleAudio" src="title.mp3" loop></audio>
 <canvas id="gameCanvas"></canvas>
 <div id="ui-layer" style="display:none">
@@ -367,6 +369,7 @@ function handleMessage(msg) {
 
     case 'survivorCaged':
       playSound('warning');
+      playEffect('cageAudio', 0.7);
       flashScreen('#ff4400', 0.5);
       if(msg.survivorId === myId) { showFloatingText('감금됨! 동료가 구조해야 합니다!', '#ff4444'); }
       gameState.cages = gameState.cages || [];
@@ -551,6 +554,12 @@ function playSound(type) {
   else if(type==='siren'){ osc.type='sawtooth'; osc.frequency.setValueAtTime(420,audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(620,audioCtx.currentTime+1.4); gain.gain.setValueAtTime(0.22,audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+1.4); osc.start(); osc.stop(audioCtx.currentTime+1.4); }
 }
 
+function playEffect(id, volume=0.6) {
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.currentTime=0; el.volume=volume;
+  el.play().catch(()=>{});
+}
 function flashScreen(color, alpha) {
   const el=document.getElementById('flash-overlay');
   el.style.background=color; el.style.opacity=alpha;
@@ -573,7 +582,7 @@ window.addEventListener('keydown', (e)=>{
   const key=e.key.toLowerCase();
   if(key==='w'||key==='a'||key==='s'||key==='d') keys[key]=true;
   if(key==='e') keys.e=true;
-  if(key==='f'&&!fPressed){ keys.f=true; fPressed=true; }
+  if(key==='f'&&!fPressed){ keys.f=true; fPressed=true; playEffect('doorAudio', 0.5); }
   if(e.key==='Shift') keys.shift=true;
   if(e.code==='Space'){
     keys.space=true;
@@ -642,13 +651,19 @@ function startGame(msg) {
   function loop(ts) {
     const dt=Math.min(0.05,(ts-lastFrame)/1000); lastFrame=ts;
     sendInput();
-    // walkCycle 로컬 업데이트
+    // walkCycle 로컬 업데이트 (60fps)
     for(const [id,s] of Object.entries(gameState.survivors)) {
       if(!walkCycles[id]) walkCycles[id]=0;
       if(!s.dead && !s.isHiding && !s.caged) {
         if(s.isRunning) walkCycles[id]+=7.5*dt;
         else if(s.interacting===false && (id===myId?(keys.w||keys.a||keys.s||keys.d):true)) walkCycles[id]+=4*dt;
       }
+    }
+    // 살인마 walkCycle: 키입력 기반 60fps 업데이트 (서버 위치 비교 안함)
+    if(myRole==='killer') {
+      const kMoving = keys.w||keys.a||keys.s||keys.d;
+      if(kMoving) killerWalkCycle.val += 7.5*dt;
+      else killerWalkCycle.val = 0;
     }
     if(scState.active){ scState.angle+=scState.speedDeg*dt; document.getElementById('sc-needle').style.transform=`rotate(${scState.angle}deg)`; if(scState.angle>=360) failSkillCheck(); }
     updateHUD(dt);
@@ -882,18 +897,11 @@ function drawKiller() {
   const kx=k.x, ky=k.y, ka=k.angle;
   const KILLER_R=24;
 
-  // 실제 위치 변화로 이동 감지
-  if(!killerWalkCycle.prevX) killerWalkCycle.prevX=kx;
-  if(!killerWalkCycle.prevY) killerWalkCycle.prevY=ky;
-  const killerMoved = Math.hypot(kx-killerWalkCycle.prevX, ky-killerWalkCycle.prevY) > 0.8;
-  killerWalkCycle.prevX=kx; killerWalkCycle.prevY=ky;
-  if(killerMoved) killerWalkCycle.val+=5*(1/60);
-  else killerWalkCycle.val=0; // 멈추면 idle로 리셋
-
-  // 프레임: 멈춤=idle, 이동=walk1↔walk2
+  // 게임루프(60fps)에서 업데이트된 killerWalkCycle.val 사용
+  const killerIsMoving = killerWalkCycle.val > 0;
   let killerFrame = 0;
-  if(killerMoved) {
-    const t = Math.floor(killerWalkCycle.val) % 2;
+  if(killerIsMoving) {
+    const t = Math.floor(killerWalkCycle.val * 3) % 2; // 속도 조정
     killerFrame = t===0 ? 1 : 2;
   }
   const killerSprite = killerFrame===0 ? SPRITES.killer_idle : killerFrame===1 ? SPRITES.killer_walk1 : SPRITES.killer_walk2;
