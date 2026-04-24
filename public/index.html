@@ -183,6 +183,7 @@ body{background:#0a0c10;color:#d7dde3;font-family:'Segoe UI',sans-serif;overflow
 </div>
 
 <!-- ── Game UI ── -->
+<audio id="bgmAudio" src="bgm.mp4" loop></audio>
 <canvas id="gameCanvas"></canvas>
 <div id="ui-layer" style="display:none">
   <div id="objective" class="hud">발전기 수리: <span id="gen-count">0</span> / 5</div>
@@ -315,8 +316,10 @@ function handleMessage(msg) {
       // handled in render
       break;
     case 'lockerCheck':
-      playSound('warning');
-      showFloatingText('캐비닛 확인!', '#ff8844');
+      if(myRole==='killer'){
+        playSound('warning');
+        showFloatingText('캐비닛 확인!', '#ff8844');
+      }
       break;
 
     case 'repairNoise':
@@ -529,6 +532,9 @@ function startGame(msg) {
   document.getElementById('charSelectScreen').classList.add('hidden');
   document.getElementById('ui-layer').style.display='block';
   if(charSelectInterval){ clearInterval(charSelectInterval); charSelectInterval=null; }
+  // BGM 재생
+  const bgm=document.getElementById('bgmAudio');
+  if(bgm){ bgm.volume=0.3; bgm.play().catch(()=>{}); }
 
   // Set instruction bar
   const instrEl = document.getElementById('instructionBar');
@@ -775,43 +781,88 @@ function drawKiller() {
     ctx.beginPath(); ctx.arc(k.x,k.y,k.radius+6,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
   }
 }
+// 클라이언트 로컬 발자국 (서버 sync 불필요)
+const localScratchMarks = [];
+let lastScratchTime = 0;
+
 function drawSurvivors() {
   for(const [id,s] of Object.entries(gameState.survivors)){
     if(s.dead&&!s.caged) continue;
     if(s.isHiding) continue;
     if(s.caged) continue;
     const isMe=id===myId;
-    const bob=Math.sin((s.walkCycle||0))*(s.isRunning?4:2);
-    if(s.invincible&&Math.floor(Date.now()/100)%2===0) continue;
-    ctx.globalAlpha=s.invincible?0.7:1;
-    const bodyColor=isMe?'#244a6b':'#1a5a2a';
-    // Body (torso rect like original)
-    ctx.fillStyle='#49515b'; ctx.fillRect(s.x-12,s.y+bob+5,24,15);
-    // Main circle (body)
-    ctx.fillStyle=bodyColor; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius,0,Math.PI*2); ctx.fill();
-    // Arms (white circles on sides)
+    const wc = (s.walkCycle||0);
+    const moving = s.isRunning !== undefined ? s.isRunning : false;
+    const bob = Math.sin(wc) * (moving ? 4 : 2);
+
+    // 내 캐릭터 발자국 생성 (로컬)
+    if(isMe && (keys.w||keys.a||keys.s||keys.d) && keys.shift) {
+      const now=Date.now();
+      if(now-lastScratchTime>60){
+        lastScratchTime=now;
+        const ang=Math.atan2((keys.s?1:0)-(keys.w?1:0),(keys.d?1:0)-(keys.a?1:0));
+        localScratchMarks.push({x:s.x+(Math.random()-0.5)*22,y:s.y+(Math.random()-0.5)*22,angle:ang+(Math.random()-0.5),born:now});
+      }
+    }
+
+    if(s.invincible && Math.floor(Date.now()/100)%2===0) continue;
+    ctx.globalAlpha = s.invincible ? 0.7 : 1;
+
+    // 원본과 동일한 사람 모양
+    const bodyColor = isMe ? '#244a6b' : '#1a5a2a';
+    // 몸통 (사각형)
+    ctx.fillStyle='#49515b';
+    ctx.fillRect(s.x-12, s.y+bob+5, 24, 15);
+    // 바디 원
+    ctx.fillStyle=bodyColor;
+    ctx.beginPath(); ctx.arc(s.x, s.y+bob, s.radius, 0, Math.PI*2); ctx.fill();
+    // 팔 (양쪽 흰 원)
     ctx.fillStyle='#e0e0e0';
-    ctx.beginPath(); ctx.arc(s.x-12,s.y+bob,s.radius*0.4,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(s.x+12,s.y+bob,s.radius*0.4,0,Math.PI*2); ctx.fill();
-    // Head (face color)
-    ctx.fillStyle='#f5d0b5'; ctx.beginPath(); ctx.arc(s.x,s.y+bob-5,s.radius*0.6,0,Math.PI*2); ctx.fill();
-    // Hit boost aura
-    if(s.hitBoost){ ctx.strokeStyle='rgba(255,136,68,.8)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke(); }
-    // Invincible glow after rescue
-    if(s.invincible){ ctx.strokeStyle='rgba(76,255,144,.6)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+8,0,Math.PI*2); ctx.stroke(); }
-    // Name tag
-    ctx.fillStyle=isMe?'#ffe45a':'#fff'; ctx.font='bold 11px Segoe UI'; ctx.textAlign='center';
+    ctx.beginPath(); ctx.arc(s.x-12, s.y+bob, s.radius*0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x+12, s.y+bob, s.radius*0.4, 0, Math.PI*2); ctx.fill();
+    // 머리
+    ctx.fillStyle='#f5d0b5';
+    ctx.beginPath(); ctx.arc(s.x, s.y+bob-5, s.radius*0.6, 0, Math.PI*2); ctx.fill();
+
+    // 피격 속도 부스트 오라
+    if(s.hitBoost){
+      ctx.strokeStyle='rgba(255,136,68,.8)'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke();
+    }
+    // 무적 구조 후 초록빛
+    if(s.invincible){
+      ctx.strokeStyle='rgba(76,255,144,.6)'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+8,0,Math.PI*2); ctx.stroke();
+    }
+
+    // 이름표
+    ctx.fillStyle=isMe?'#ffe45a':'#fff';
+    ctx.font='bold 11px Segoe UI'; ctx.textAlign='center';
     const name=(players[id]&&players[id].name)||'생존자';
-    ctx.fillText(name,s.x,s.y+bob-s.radius-8);
-    // My outline
-    if(isMe){ ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+4,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.fillText(name, s.x, s.y+bob-s.radius-8);
+
+    // 내 캐릭터 점선 테두리
+    if(isMe){
+      ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+4,0,Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.globalAlpha=1;
   }
 }
 function drawScratchMarks() {
-  if(!gameState.scratchMarks) return;
-  for(const sm of gameState.scratchMarks){
-    ctx.strokeStyle=`rgba(255, 90, 30, ${sm.life})`;
+  const now=Date.now();
+  // 오래된 발자국 제거 (3초)
+  for(let i=localScratchMarks.length-1;i>=0;i--){
+    if(now-localScratchMarks[i].born>3000) localScratchMarks.splice(i,1);
+  }
+  // 서버 발자국 (다른 생존자꺼)
+  const marks = [
+    ...(gameState.scratchMarks||[]).map(m=>({...m, alpha:m.life})),
+    ...localScratchMarks.map(m=>({x:m.x,y:m.y,angle:m.angle,alpha:1-(now-m.born)/3000}))
+  ];
+  for(const sm of marks){
+    ctx.strokeStyle=`rgba(255, 90, 30, ${sm.alpha})`;
     ctx.lineWidth=3;
     ctx.beginPath();
     ctx.moveTo(sm.x-Math.cos(sm.angle)*6,sm.y-Math.sin(sm.angle)*6);
@@ -822,21 +873,33 @@ function drawScratchMarks() {
 function drawFog() {
   if(!world) return;
   fogCtx.clearRect(0,0,fogCanvas.width,fogCanvas.height);
+
+  if(myRole==='killer') {
+    // 살인마: 전체 맵 보이되 가장자리만 약간 어둡게
+    fogCtx.fillStyle='rgba(0,0,0,0)';
+    fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height);
+    // 가장자리 비네팅만
+    const vig=fogCtx.createRadialGradient(canvas.width/2,canvas.height/2,Math.min(canvas.width,canvas.height)*0.35,canvas.width/2,canvas.height/2,Math.max(canvas.width,canvas.height)*0.75);
+    vig.addColorStop(0,'rgba(0,0,0,0)');
+    vig.addColorStop(0.7,'rgba(0,0,0,0.1)');
+    vig.addColorStop(1,'rgba(0,0,0,0.55)');
+    fogCtx.fillStyle=vig; fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height);
+    ctx.drawImage(fogCanvas,0,0);
+    return;
+  }
+
+  // 생존자: 기존 안개
   fogCtx.fillStyle='rgba(0,0,0,0.96)'; fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height);
   fogCtx.globalCompositeOperation='destination-out';
 
-  // My entity position on screen = center
   let myIsHiding=false;
-  if(myRole==='survivor'){
-    const s=gameState.survivors[myId];
-    if(s) myIsHiding=s.isHiding||s.caged;
-  }
+  const mySurv=gameState.survivors[myId];
+  if(mySurv) myIsHiding=mySurv.isHiding||mySurv.caged;
   const pRadius=myIsHiding?120:410, innerRadius=myIsHiding?14:24;
   const grad=fogCtx.createRadialGradient(canvas.width/2,canvas.height/2,innerRadius,canvas.width/2,canvas.height/2,pRadius);
   grad.addColorStop(0,'rgba(255,255,255,1)'); grad.addColorStop(0.45,'rgba(255,255,255,0.98)'); grad.addColorStop(0.72,'rgba(255,255,255,0.62)'); grad.addColorStop(0.90,'rgba(255,255,255,0.18)'); grad.addColorStop(1,'rgba(255,255,255,0)');
   fogCtx.fillStyle=grad; fogCtx.beginPath(); fogCtx.arc(canvas.width/2,canvas.height/2,pRadius,0,Math.PI*2); fogCtx.fill();
 
-  // Fixed generators light up
   for(const g of world.generators){
     if(!g.fixed) continue;
     const sx=(g.x-camera.x)*CAMERA_ZOOM, sy=(g.y-camera.y)*CAMERA_ZOOM;
@@ -844,7 +907,6 @@ function drawFog() {
     gg.addColorStop(0,'rgba(255,255,255,1)'); gg.addColorStop(1,'rgba(255,255,255,0)');
     fogCtx.fillStyle=gg; fogCtx.beginPath(); fogCtx.arc(sx,sy,240,0,Math.PI*2); fogCtx.fill();
   }
-  // Cages visible
   for(const cage of gameState.cages){
     if(!cage.survivorId) continue;
     const sx=(cage.x-camera.x)*CAMERA_ZOOM, sy=(cage.y-camera.y)*CAMERA_ZOOM;
@@ -853,18 +915,14 @@ function drawFog() {
     fogCtx.fillStyle=cg; fogCtx.beginPath(); fogCtx.arc(sx,sy,180,0,Math.PI*2); fogCtx.fill();
   }
 
-  // Killer sees everything
-  if(myRole==='killer') { fogCtx.globalCompositeOperation='destination-out'; fogCtx.fillStyle='rgba(255,255,255,0.85)'; fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height); fogCtx.globalCompositeOperation='source-over'; }
-  if(myRole!=='killer') {
-    const k=gameState.killer;
-    if(k){ const kx=(k.x-camera.x)*CAMERA_ZOOM, ky=(k.y-camera.y)*CAMERA_ZOOM;
-      fogCtx.globalCompositeOperation='source-over';
-      const stain=fogCtx.createRadialGradient(kx,ky,14,kx,ky,520);
-      stain.addColorStop(0,'rgba(255,0,0,0.38)'); stain.addColorStop(1,'rgba(255,0,0,0)');
-      fogCtx.fillStyle=stain; fogCtx.beginPath(); fogCtx.moveTo(kx,ky); fogCtx.arc(kx,ky,520,k.angle-Math.PI/4,k.angle+Math.PI/4); fogCtx.lineTo(kx,ky); fogCtx.fill();
-    }
-  }
   fogCtx.globalCompositeOperation='source-over';
+  // 킬러 방향 붉은 경보
+  const k=gameState.killer;
+  if(k){ const kx=(k.x-camera.x)*CAMERA_ZOOM, ky=(k.y-camera.y)*CAMERA_ZOOM;
+    const stain=fogCtx.createRadialGradient(kx,ky,14,kx,ky,520);
+    stain.addColorStop(0,'rgba(255,0,0,0.38)'); stain.addColorStop(1,'rgba(255,0,0,0)');
+    fogCtx.fillStyle=stain; fogCtx.beginPath(); fogCtx.moveTo(kx,ky); fogCtx.arc(kx,ky,520,k.angle-Math.PI/4,k.angle+Math.PI/4); fogCtx.lineTo(kx,ky); fogCtx.fill();
+  }
   const vignette=fogCtx.createRadialGradient(canvas.width/2,canvas.height/2,pRadius*0.58,canvas.width/2,canvas.height/2,Math.max(canvas.width,canvas.height)*0.82);
   vignette.addColorStop(0,'rgba(0,0,0,0)'); vignette.addColorStop(0.62,'rgba(0,0,0,0.08)'); vignette.addColorStop(0.82,'rgba(0,0,0,0.36)'); vignette.addColorStop(1,'rgba(0,0,0,0.64)');
   fogCtx.fillStyle=vignette; fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height);
