@@ -217,38 +217,20 @@ function removeBlackBg(imageData, threshold) {
     const idx = y * w + x;
     if(!visited[idx] && isDark(x, y)) { visited[idx]=1; queue.push(x, y); }
   }
-  for(let x = 0; x < w; x++) { seed(x, 0); seed(x, h-1); }
-  for(let y = 0; y < h; y++) { seed(0, y); seed(w-1, y); }
-  let qi = 0;
+  // 4면 테두리에서만 시작
+  for(let x=0;x<w;x++){ seed(x,0); seed(x,h-1); }
+  for(let y=0;y<h;y++){ seed(0,y); seed(w-1,y); }
+  let qi=0;
   while(qi < queue.length) {
-    const x = queue[qi++], y = queue[qi++];
-    d[(y * w + x) * 4 + 3] = 0;
-    const dirs=[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]; // 8방향
-    for(const [dx,dy] of dirs) {
-      const nx=x+dx, ny=y+dy;
-      if(nx>=0&&nx<w&&ny>=0&&ny<h) {
-        const nidx=ny*w+nx;
-        if(!visited[nidx] && isDark(nx,ny)) { visited[nidx]=1; queue.push(nx,ny); }
-      }
-    }
+    const x=queue[qi++], y=queue[qi++];
+    d[(y*w+x)*4+3]=0;
+    // 4방향만 (8방향은 캐릭터 내부를 침범)
+    if(x>0){const ni=y*w+(x-1);if(!visited[ni]&&isDark(x-1,y)){visited[ni]=1;queue.push(x-1,y);}}
+    if(x<w-1){const ni=y*w+(x+1);if(!visited[ni]&&isDark(x+1,y)){visited[ni]=1;queue.push(x+1,y);}}
+    if(y>0){const ni=(y-1)*w+x;if(!visited[ni]&&isDark(x,y-1)){visited[ni]=1;queue.push(x,y-1);}}
+    if(y<h-1){const ni=(y+1)*w+x;if(!visited[ni]&&isDark(x,y+1)){visited[ni]=1;queue.push(x,y+1);}}
   }
-  // JPEG artifact: 배경에 인접한 반투명 경계 픽셀 추가 처리
-  for(let y=0; y<h; y++) {
-    for(let x=0; x<w; x++) {
-      const pi=(y*w+x)*4;
-      if(d[pi+3]===0) continue; // 이미 투명
-      // 주변 8방향에 투명 픽셀이 있으면서 어두운 픽셀 → 투명으로
-      const r=d[pi],g=d[pi+1],b=d[pi+2];
-      if(r<50&&g<50&&b<50) {
-        let hasTransparentNeighbor=false;
-        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-          const nx=x+dx,ny=y+dy;
-          if(nx>=0&&nx<w&&ny>=0&&ny<h&&d[(ny*w+nx)*4+3]===0){hasTransparentNeighbor=true;break;}
-        }
-        if(hasTransparentNeighbor) d[pi+3]=0;
-      }
-    }
-  }
+  // edge cleanup 없음 - 캐릭터 내부 보존
 }
 function loadSprite(key, mime, b64) {
   const img = new Image();
@@ -258,9 +240,12 @@ function loadSprite(key, mime, b64) {
     const octx = oc.getContext('2d');
     octx.drawImage(img, 0, 0);
     const imageData = octx.getImageData(0, 0, oc.width, oc.height);
-    removeBlackBg(imageData, 30); // 테두리에서 연결된 검은 배경만 제거
+    removeBlackBg(imageData, 15); // 임계값 낮춰서 캐릭터 손실 최소화
     octx.putImageData(imageData, 0, 0);
-    SPRITES[key] = oc;
+    // ImageBitmap으로 변환하면 GPU 가속으로 drawImage가 빨라짐
+    if(typeof createImageBitmap !== 'undefined') {
+      createImageBitmap(oc).then(bmp => { SPRITES[key]=bmp; }).catch(()=>{ SPRITES[key]=oc; });
+    } else { SPRITES[key]=oc; }
   };
   img.src = 'data:' + mime + ';base64,' + b64;
 }
@@ -280,9 +265,9 @@ loadSprite('female_walk2', 'image/jpeg', '/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1
 // 스프라이트 그리기 헬퍼: 캐릭터 중심(cx,cy)에 angle 방향으로 회전해서 그림
 function drawSprite(img, cx, cy, angle, size) {
   if(!img) return false;
-  // canvas인지 image인지 체크
   if(img instanceof HTMLImageElement && (!img.complete || img.naturalWidth===0)) return false;
   if(img instanceof HTMLCanvasElement && img.width===0) return false;
+  // ImageBitmap은 항상 ready
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(angle + Math.PI/2); // 이미지가 위를 향하므로 +90도 보정
@@ -376,7 +361,7 @@ function handleMessage(msg) {
 
     case 'survivorHit':
       playSound('explosion');
-      flashScreen('#ff0000', 0.35);
+      if(msg.survivorId===myId) flashScreen('#ff0000', 0.35);
       if(msg.survivorId === myId) { showFloatingText('피격! 3초간 속도 증가!', '#ff8844'); }
       break;
 
