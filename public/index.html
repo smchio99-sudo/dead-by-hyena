@@ -314,6 +314,10 @@ function handleMessage(msg) {
     case 'campingChange':
       // handled in render
       break;
+    case 'lockerCheck':
+      playSound('warning');
+      showFloatingText('캐비닛 확인!', '#ff8844');
+      break;
 
     case 'repairNoise':
       if(myRole === 'killer') playSound('warning');
@@ -506,11 +510,12 @@ canvas.addEventListener('mousemove', (e)=>{
   mouseAngle=Math.atan2(e.clientY-cy,e.clientX-cx);
 });
 
+let fLastSent=false;
 function sendInput() {
   if(!ws||ws.readyState!==1) return;
-  const input = { w:keys.w,a:keys.a,s:keys.s,d:keys.d,e:keys.e,f:keys.f,shift:keys.shift,moving:(keys.w||keys.a||keys.s||keys.d),angle:mouseAngle,vault:keys.f&&myRole==='killer' };
+  const input = { w:keys.w,a:keys.a,s:keys.s,d:keys.d,e:keys.e,f:keys.f,shift:keys.shift,moving:(keys.w||keys.a||keys.s||keys.d),angle:mouseAngle };
   send({ type:'input', input });
-  keys.f=false; // reset f after sending
+  fLastSent=keys.f;
 }
 
 let lastHeartbeatTime=0;
@@ -528,7 +533,7 @@ function startGame(msg) {
   // Set instruction bar
   const instrEl = document.getElementById('instructionBar');
   if(myRole==='killer') {
-    instrEl.innerHTML = '이동 <span class="key">WASD</span> | 마우스 방향으로 이동 | 창틀 <span class="key">F</span>';
+    instrEl.innerHTML = '이동 <span class="key">WASD</span> | 달리기 <span class="key">SHIFT</span> | 창틀/캐비닛 확인 <span class="key">F</span>';
   } else {
     instrEl.innerHTML = '이동 <span class="key">WASD</span> | 달리기 <span class="key">SHIFT</span> | 상호작용/창틀 <span class="key">E</span> | 캐비닛 <span class="key">F</span> | 스킬체크 <span class="key">SPACE</span>';
   }
@@ -553,6 +558,7 @@ function onServerState(msg) {
   gameState.cages = msg.cages;
   gameState.gensFixed = msg.gensFixed;
   gameState.endgame = msg.endgame;
+  if(msg.scratchMarks) gameState.scratchMarks = msg.scratchMarks;
   // Sync world generators/exitGates
   if(world) {
     for(let i=0;i<msg.generators.length;i++) { world.generators[i].progress=msg.generators[i].progress; world.generators[i].fixed=msg.generators[i].fixed; }
@@ -775,22 +781,42 @@ function drawSurvivors() {
     if(s.isHiding) continue;
     if(s.caged) continue;
     const isMe=id===myId;
-    const bob=Math.sin((s.walkCycle||0))*2;
-    // Invincibility flash
-    if(s.invincible&&Math.floor(Date.now()/100)%2===0&&!isMe) continue;
-    ctx.globalAlpha=s.invincible?0.6:1;
+    const bob=Math.sin((s.walkCycle||0))*(s.isRunning?4:2);
+    if(s.invincible&&Math.floor(Date.now()/100)%2===0) continue;
+    ctx.globalAlpha=s.invincible?0.7:1;
     const bodyColor=isMe?'#244a6b':'#1a5a2a';
+    // Body (torso rect like original)
     ctx.fillStyle='#49515b'; ctx.fillRect(s.x-12,s.y+bob+5,24,15);
+    // Main circle (body)
     ctx.fillStyle=bodyColor; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius,0,Math.PI*2); ctx.fill();
+    // Arms (white circles on sides)
+    ctx.fillStyle='#e0e0e0';
+    ctx.beginPath(); ctx.arc(s.x-12,s.y+bob,s.radius*0.4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x+12,s.y+bob,s.radius*0.4,0,Math.PI*2); ctx.fill();
+    // Head (face color)
     ctx.fillStyle='#f5d0b5'; ctx.beginPath(); ctx.arc(s.x,s.y+bob-5,s.radius*0.6,0,Math.PI*2); ctx.fill();
     // Hit boost aura
-    if(s.hitBoost){ ctx.strokeStyle='rgba(255,136,68,.7)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke(); }
+    if(s.hitBoost){ ctx.strokeStyle='rgba(255,136,68,.8)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke(); }
+    // Invincible glow after rescue
+    if(s.invincible){ ctx.strokeStyle='rgba(76,255,144,.6)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+8,0,Math.PI*2); ctx.stroke(); }
     // Name tag
     ctx.fillStyle=isMe?'#ffe45a':'#fff'; ctx.font='bold 11px Segoe UI'; ctx.textAlign='center';
     const name=(players[id]&&players[id].name)||'생존자';
     ctx.fillText(name,s.x,s.y+bob-s.radius-8);
-    if(isMe){ ctx.strokeStyle='rgba(255,228,90,.4)'; ctx.lineWidth=2; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+4,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); }
+    // My outline
+    if(isMe){ ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+4,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); }
     ctx.globalAlpha=1;
+  }
+}
+function drawScratchMarks() {
+  if(!gameState.scratchMarks) return;
+  for(const sm of gameState.scratchMarks){
+    ctx.strokeStyle=`rgba(255, 90, 30, ${sm.life})`;
+    ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(sm.x-Math.cos(sm.angle)*6,sm.y-Math.sin(sm.angle)*6);
+    ctx.lineTo(sm.x+Math.cos(sm.angle)*6,sm.y+Math.sin(sm.angle)*6);
+    ctx.stroke();
   }
 }
 function drawFog() {
@@ -827,8 +853,9 @@ function drawFog() {
     fogCtx.fillStyle=cg; fogCtx.beginPath(); fogCtx.arc(sx,sy,180,0,Math.PI*2); fogCtx.fill();
   }
 
-  // Killer red cone visible to killers always
-  if(myRole==='killer'||true) {
+  // Killer sees everything
+  if(myRole==='killer') { fogCtx.globalCompositeOperation='destination-out'; fogCtx.fillStyle='rgba(255,255,255,0.85)'; fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height); fogCtx.globalCompositeOperation='source-over'; }
+  if(myRole!=='killer') {
     const k=gameState.killer;
     if(k){ const kx=(k.x-camera.x)*CAMERA_ZOOM, ky=(k.y-camera.y)*CAMERA_ZOOM;
       fogCtx.globalCompositeOperation='source-over';
@@ -867,6 +894,7 @@ function draw() {
   drawExitGates();
   drawLockers();
   drawGenerators();
+  drawScratchMarks();
   drawCages();
   drawKiller();
   drawSurvivors();
