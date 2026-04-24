@@ -781,6 +781,8 @@ function drawKiller() {
     ctx.beginPath(); ctx.arc(k.x,k.y,k.radius+6,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
   }
 }
+// 생존자 반지름 상수 (서버에서 안보냄)
+const SR = 18;
 // 클라이언트 로컬 발자국 (서버 sync 불필요)
 const localScratchMarks = [];
 let lastScratchTime = 0;
@@ -815,36 +817,36 @@ function drawSurvivors() {
     ctx.fillRect(s.x-12, s.y+bob+5, 24, 15);
     // 바디 원
     ctx.fillStyle=bodyColor;
-    ctx.beginPath(); ctx.arc(s.x, s.y+bob, s.radius, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x, s.y+bob, SR, 0, Math.PI*2); ctx.fill();
     // 팔 (양쪽 흰 원)
     ctx.fillStyle='#e0e0e0';
-    ctx.beginPath(); ctx.arc(s.x-12, s.y+bob, s.radius*0.4, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(s.x+12, s.y+bob, s.radius*0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x-12, s.y+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x+12, s.y+bob, SR*0.4, 0, Math.PI*2); ctx.fill();
     // 머리
     ctx.fillStyle='#f5d0b5';
-    ctx.beginPath(); ctx.arc(s.x, s.y+bob-5, s.radius*0.6, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x, s.y+bob-5, SR*0.6, 0, Math.PI*2); ctx.fill();
 
     // 피격 속도 부스트 오라
     if(s.hitBoost){
       ctx.strokeStyle='rgba(255,136,68,.8)'; ctx.lineWidth=3;
-      ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(s.x,s.y+bob,SR+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke();
     }
     // 무적 구조 후 초록빛
     if(s.invincible){
       ctx.strokeStyle='rgba(76,255,144,.6)'; ctx.lineWidth=3;
-      ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+8,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(s.x,s.y+bob,SR+8,0,Math.PI*2); ctx.stroke();
     }
 
     // 이름표
     ctx.fillStyle=isMe?'#ffe45a':'#fff';
     ctx.font='bold 11px Segoe UI'; ctx.textAlign='center';
     const name=(players[id]&&players[id].name)||'생존자';
-    ctx.fillText(name, s.x, s.y+bob-s.radius-8);
+    ctx.fillText(name, s.x, s.y+bob-SR-8);
 
     // 내 캐릭터 점선 테두리
     if(isMe){
       ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([3,3]);
-      ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+4,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(s.x,s.y+bob,SR+4,0,Math.PI*2); ctx.stroke();
       ctx.setLineDash([]);
     }
     ctx.globalAlpha=1;
