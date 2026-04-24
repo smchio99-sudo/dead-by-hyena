@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project: DEADLINE — Multiplayer</title>
+<style>
+/* ── Base ── */
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0a0c10;color:#d7dde3;font-family:'Segoe UI',sans-serif;overflow:hidden;user-select:none;}
+#gameCanvas{display:block;position:absolute;top:0;left:0;}
+
+/* ── Screens ── */
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity .4s;}
+.screen.hidden{opacity:0;pointer-events:none;}
+
+/* ── Title Screen ── */
+#titleScreen{background:radial-gradient(ellipse at 50% 40%, #1a0a0a 0%, #070a0e 70%);}
+.title-bg{position:absolute;inset:0;overflow:hidden;pointer-events:none;}
+.title-bg::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 47px,rgba(255,0,0,.03) 48px),repeating-linear-gradient(90deg,transparent,transparent 47px,rgba(255,0,0,.03) 48px);}
+.title-scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 3px,rgba(0,0,0,.12) 3px,rgba(0,0,0,.12) 4px);pointer-events:none;}
+.title-glow{position:absolute;top:20%;left:50%;transform:translateX(-50%);width:700px;height:300px;background:radial-gradient(ellipse,rgba(200,0,0,.18) 0%,transparent 70%);pointer-events:none;}
+
+.title-main{position:relative;text-align:center;margin-bottom:40px;}
+.title-sub{font-size:.85rem;letter-spacing:.5em;text-transform:uppercase;color:#8a3030;margin-bottom:16px;}
+.title-logo{font-size:5.5rem;font-weight:900;letter-spacing:-.02em;line-height:1;text-transform:uppercase;color:#fff;text-shadow:0 0 60px rgba(200,0,0,.8),0 0 20px rgba(200,0,0,.4);}
+.title-logo span{color:#c80000;}
+.title-version{font-size:.75rem;color:#444c55;margin-top:8px;letter-spacing:.2em;}
+
+.name-input-wrap{display:flex;gap:10px;margin-bottom:28px;align-items:center;}
+.name-input-wrap input{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#eee;font-size:1.1rem;padding:10px 16px;border-radius:8px;outline:none;width:220px;text-align:center;}
+.name-input-wrap input:focus{border-color:rgba(200,0,0,.5);box-shadow:0 0 0 2px rgba(200,0,0,.15);}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 32px;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;transition:all .18s;letter-spacing:.04em;}
+.btn-primary{background:linear-gradient(135deg,#c80000,#8a0000);color:#fff;box-shadow:0 4px 20px rgba(200,0,0,.4);}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(200,0,0,.6);}
+.btn-primary:active{transform:translateY(0);}
+.btn-secondary{background:rgba(255,255,255,.06);color:#aaa;border:1px solid rgba(255,255,255,.1);}
+.btn-secondary:hover{background:rgba(255,255,255,.1);color:#fff;}
+
+.lobby-status{margin-bottom:28px;text-align:center;color:#777;font-size:.95rem;}
+.lobby-status strong{color:#c80000;}
+.player-slots{display:flex;gap:10px;margin-bottom:28px;}
+.player-slot{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 20px;min-width:120px;text-align:center;font-size:.9rem;color:#555;transition:all .3s;}
+.player-slot.filled{border-color:rgba(200,0,0,.3);color:#d7dde3;}
+.player-slot.me{border-color:rgba(200,0,0,.6);color:#fff;box-shadow:0 0 12px rgba(200,0,0,.2);}
+
+/* ── How to play ── */
+.how-to{max-width:720px;width:100%;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:24px 32px;margin-bottom:32px;}
+.how-to h3{font-size:.85rem;letter-spacing:.3em;text-transform:uppercase;color:#c80000;margin-bottom:14px;}
+.how-to-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.how-to-col h4{font-size:.8rem;letter-spacing:.15em;text-transform:uppercase;color:#7a8490;margin-bottom:8px;}
+.how-to-col ul{list-style:none;font-size:.88rem;color:#9ba5af;line-height:1.8;}
+.how-to-col ul li::before{content:'▸ ';color:#c80000;}
+
+/* ── Character Select ── */
+#charSelectScreen{background:#070a0e;}
+.char-select-title{font-size:1.4rem;font-weight:800;letter-spacing:.08em;color:#ffe45a;margin-bottom:8px;text-align:center;}
+.char-timer{font-size:.9rem;color:#777;margin-bottom:28px;text-align:center;}
+.char-timer span{color:#ff5959;font-weight:700;}
+.char-cards{display:flex;gap:20px;justify-content:center;margin-bottom:28px;}
+.char-card{width:180px;border-radius:14px;padding:24px 16px;text-align:center;cursor:pointer;border:2px solid transparent;transition:all .2s;position:relative;overflow:hidden;}
+.char-card::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .2s;}
+.char-card.killer-card{background:rgba(120,0,0,.15);border-color:rgba(180,0,0,.3);}
+.char-card.killer-card::before{background:radial-gradient(ellipse,rgba(200,0,0,.15),transparent);}
+.char-card.survivor-card{background:rgba(30,80,120,.15);border-color:rgba(50,120,200,.3);}
+.char-card.survivor-card::before{background:radial-gradient(ellipse,rgba(50,120,200,.15),transparent);}
+.char-card:hover:not(.taken){transform:translateY(-4px);border-color:rgba(255,255,255,.3);}
+.char-card:hover:not(.taken)::before{opacity:1;}
+.char-card.taken{opacity:.45;cursor:not-allowed;}
+.char-card.selected{border-color:#ffe45a;box-shadow:0 0 20px rgba(255,228,90,.25);}
+.char-icon{font-size:3rem;margin-bottom:12px;}
+.char-name{font-size:1.05rem;font-weight:800;margin-bottom:6px;}
+.char-desc{font-size:.8rem;color:#8a9097;line-height:1.5;}
+.char-badge{position:absolute;top:10px;right:10px;font-size:.65rem;background:rgba(255,228,90,.2);color:#ffe45a;border:1px solid rgba(255,228,90,.4);border-radius:4px;padding:2px 6px;font-weight:700;}
+.char-players{display:flex;gap:10px;margin-bottom:16px;justify-content:center;}
+.char-player-item{font-size:.82rem;color:#8a9097;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:6px;padding:4px 12px;}
+.char-player-item.me{color:#ffe45a;border-color:rgba(255,228,90,.3);}
+.char-player-item .role-badge{margin-left:6px;font-weight:700;}
+.role-killer{color:#ff5959;}
+.role-survivor{color:#5bc4ff;}
+
+/* ── UI Layer ── */
+#ui-layer{position:absolute;inset:0;pointer-events:none;z-index:10;}
+.hud{position:absolute;padding:20px 24px;font-weight:800;text-shadow:0 2px 8px rgba(0,0,0,.8);}
+#objective{top:18px;left:18px;color:#ffe45a;font-size:1.55rem;}
+#terror-radius{bottom:124px;right:30px;color:#d02020;opacity:0;transition:opacity .25s;font-size:1.8rem;animation:heartbeat .85s infinite;}
+#cooldown-ui{bottom:88px;left:50%;transform:translateX(-50%);position:absolute;display:none;font-weight:700;background:rgba(5,7,10,.7);border:1px solid rgba(255,255,255,.08);padding:8px 14px;border-radius:10px;}
+#hint-ui{top:80px;left:18px;position:absolute;color:#dbe6ef;font-size:.98rem;background:rgba(9,13,18,.62);border:1px solid rgba(255,255,255,.08);padding:8px 12px;border-radius:10px;display:none;}
+#skill-check-container{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:168px;height:168px;display:none;border-radius:50%;border:6px solid rgba(255,255,255,.18);background:radial-gradient(circle,rgba(15,19,26,.92) 0%,rgba(8,11,15,.98) 100%);box-shadow:0 0 36px rgba(0,0,0,.65);}
+#sc-success-zone{position:absolute;inset:-6px;border-radius:50%;border:6px solid transparent;border-top-color:#fff;transform:rotate(42deg);filter:drop-shadow(0 0 7px rgba(255,255,255,.9));}
+#sc-needle{position:absolute;top:50%;left:50%;width:4px;height:82px;margin-left:-2px;background:#ff4444;transform-origin:50% 0%;box-shadow:0 0 9px rgba(255,60,60,.8);border-radius:3px;}
+#action-bar-container{position:absolute;bottom:48px;left:50%;transform:translateX(-50%);width:320px;height:16px;display:none;background:rgba(5,8,11,.75);border:1px solid rgba(255,255,255,.14);border-radius:999px;overflow:hidden;box-shadow:0 0 20px rgba(0,0,0,.5);}
+#action-bar-fill{width:0%;height:100%;background:linear-gradient(90deg,#f7ff89,#e8c444);box-shadow:0 0 10px rgba(255,241,126,.8);}
+.instruction{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);text-align:center;font-size:.97rem;background:rgba(7,10,14,.82);border:1px solid rgba(255,255,255,.08);padding:10px 16px;border-radius:11px;white-space:nowrap;}
+.key{display:inline-block;padding:3px 7px;background:#0f141a;border:1px solid rgba(255,255,255,.18);border-radius:5px;color:#fff;font-weight:700;margin:0 2px;}
+#survivor-hud{position:absolute;top:18px;right:18px;display:flex;flex-direction:column;gap:8px;align-items:flex-end;}
+.survivor-status{background:rgba(5,8,12,.75);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:8px 14px;font-size:.88rem;display:flex;align-items:center;gap:10px;}
+.hp-dots{display:flex;gap:4px;}
+.hp-dot{width:10px;height:10px;border-radius:50%;background:#ff4444;}
+.hp-dot.full{background:#4cff90;}
+.cage-indicator{background:rgba(200,50,0,.25);border:1px solid rgba(255,100,0,.4);border-radius:10px;padding:10px 16px;text-align:center;font-size:.9rem;}
+.camping-warn{color:#ffe45a;font-size:.78rem;margin-top:4px;}
+#flash-overlay{position:absolute;inset:0;pointer-events:none;opacity:0;background:#fff;transition:opacity .1s;}
+
+@keyframes heartbeat{0%{transform:scale(1)}50%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<!-- ── Title Screen ── -->
+<div id="titleScreen" class="screen">
+  <div class="title-bg"><div class="title-scanlines"></div><div class="title-glow"></div></div>
+  <div class="title-main">
+    <div class="title-sub">Project</div>
+    <div class="title-logo">DEAD<span>LINE</span></div>
+    <div class="title-version">2 vs 1 멀티플레이 — 생존 호러</div>
+  </div>
+
+  <div class="how-to">
+    <h3>게임 방법</h3>
+    <div class="how-to-cols">
+      <div class="how-to-col">
+        <h4>🧍 생존자 (2명)</h4>
+        <ul>
+          <li>발전기 5개를 수리해 탈출구 개방</li>
+          <li>탈출구 레버를 작동하고 밖으로 탈출하면 승리</li>
+          <li>체력 2칸 — 첫 번째 피격 시 3초간 속도 폭발 + 무적</li>
+          <li>두 번째 피격 시 감옥에 갇힘, 1분 안에 구조 필요</li>
+          <li>동료가 E 키로 감옥 탈출 지원 가능</li>
+          <li>감옥 탈출 후 5초간 무적</li>
+        </ul>
+      </div>
+      <div class="how-to-col">
+        <h4>🔪 살인마 (1명)</h4>
+        <ul>
+          <li>생존자 2명 모두 감금하면 승리</li>
+          <li>발전기 수리를 방해하고 생존자를 추적</li>
+          <li>감옥 근처 400 이내에 있으면 타이머 정지 (캠핑)</li>
+          <li>캠핑 중엔 동료가 구조 불가 — 멀리 이동해야 재개</li>
+          <li>창틀 넘기: F (쿨다운 있음)</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06);font-size:.82rem;color:#556068;">
+      조작: 이동 <span class="key">WASD</span> | 달리기 <span class="key">SHIFT</span> | 상호작용/창틀 <span class="key">E</span> | 캐비닛 숨기 <span class="key">F</span> | 스킬체크 <span class="key">SPACE</span>
+    </div>
+  </div>
+
+  <div class="name-input-wrap">
+    <input id="nameInput" type="text" maxlength="12" placeholder="닉네임 입력" autocomplete="off" />
+  </div>
+  <div class="player-slots" id="playerSlots">
+    <div class="player-slot">대기 중...</div>
+    <div class="player-slot">대기 중...</div>
+    <div class="player-slot">대기 중...</div>
+  </div>
+  <div class="lobby-status" id="lobbyStatus">서버에 연결 중...</div>
+  <button class="btn btn-primary" id="readyBtn" style="display:none">준비 완료</button>
+</div>
+
+<!-- ── Character Select Screen ── -->
+<div id="charSelectScreen" class="screen hidden">
+  <div class="char-select-title">캐릭터를 선택하세요!</div>
+  <div class="char-timer">자동 선택까지 <span id="charTimerNum">30</span>초</div>
+  <div class="char-players" id="charPlayers"></div>
+  <div class="char-cards">
+    <div class="char-card killer-card" id="cardKiller" onclick="selectRole('killer')">
+      <div class="char-badge">1명만</div>
+      <div class="char-icon">🔪</div>
+      <div class="char-name">살인마</div>
+      <div class="char-desc">생존자를 추적하고<br>발전기 수리를 방해.<br>2명 모두 감금하면 승리.</div>
+    </div>
+    <div class="char-card survivor-card" id="cardSurvivor1" onclick="selectRole('survivor')">
+      <div class="char-badge">2명 가능</div>
+      <div class="char-icon">🧍</div>
+      <div class="char-name">생존자</div>
+      <div class="char-desc">발전기 5개를 수리하고<br>탈출구로 도망쳐라.<br>동료를 구조할 수 있다.</div>
+    </div>
+  </div>
+  <button class="btn btn-primary" id="confirmRoleBtn" style="display:none;opacity:.4;cursor:not-allowed" disabled>선택 확정</button>
+</div>
+
+<!-- ── Game UI ── -->
+<canvas id="gameCanvas"></canvas>
+<div id="ui-layer" style="display:none">
+  <div id="objective" class="hud">발전기 수리: <span id="gen-count">0</span> / 5</div>
+  <div id="hint-ui"></div>
+  <div id="terror-radius" class="hud">⚠ 심장 박동 ⚠</div>
+  <div id="cooldown-ui">캐비닛 쿨다운: <span id="cd-time">10</span>초</div>
+  <div id="skill-check-container"><div id="sc-success-zone"></div><div id="sc-needle"></div></div>
+  <div id="action-bar-container"><div id="action-bar-fill"></div></div>
+  <div id="survivor-hud"></div>
+  <div id="flash-overlay"></div>
+  <div class="instruction" id="instructionBar"></div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ── WebSocket connection ───────────────────────────────────────────────────
+const WS_URL = location.protocol === 'https:'
+  ? `wss://${location.host}`
+  : `ws://${location.host}`;
+
+let ws, myId, myRole;
+let players = {}; // id → { name, role }
+let roomPhase = 'lobby';
+let selectedRole = null;
+let charSelectInterval = null;
+let charSelectDeadline = null;
+
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    document.getElementById('lobbyStatus').textContent = '연결됨. 닉네임을 입력하고 준비를 누르세요.';
+  };
+  ws.onmessage = (e) => {
+    try { handleMessage(JSON.parse(e.data)); } catch(err) { console.error(err); }
+  };
+  ws.onclose = () => {
+    document.getElementById('lobbyStatus').textContent = '연결이 끊겼습니다. 새로고침하세요.';
+  };
+  ws.onerror = () => {
+    document.getElementById('lobbyStatus').textContent = '연결 오류.';
+  };
+}
+
+function send(msg) { if(ws&&ws.readyState===1) ws.send(JSON.stringify(msg)); }
+
+function handleMessage(msg) {
+  switch(msg.type) {
+    case 'joined':
+      myId = msg.id;
+      updateLobbyUI(msg.playerCount);
+      document.getElementById('readyBtn').style.display = 'inline-flex';
+      break;
+
+    case 'playerCount':
+      updateLobbyUI(msg.count);
+      break;
+
+    case 'playerList':
+      players = {};
+      for(const p of msg.players) players[p.id] = p;
+      renderPlayerSlots(msg.players);
+      break;
+
+    case 'characterSelect':
+      charSelectDeadline = msg.deadline;
+      showCharSelect(msg.clients);
+      break;
+
+    case 'roleUpdate':
+      for(const p of msg.players) players[p.id] = p;
+      renderCharPlayers(msg.players);
+      updateCardAvailability(msg.players);
+      break;
+
+    case 'startGame':
+      startGame(msg);
+      break;
+
+    case 'state':
+      onServerState(msg);
+      break;
+
+    case 'genFixed':
+      world.generators[msg.genIndex].fixed = true;
+      world.generators[msg.genIndex].progress = 100;
+      document.getElementById('gen-count').textContent = msg.gensFixed;
+      flashScreen('#ffe45a', 0.18);
+      playSound('success');
+      break;
+
+    case 'endgame':
+      gameState.endgame = true;
+      document.getElementById('objective').textContent = '출구(레버)를 찾아 문을 여세요!';
+      document.getElementById('objective').style.color = '#ff5959';
+      playSound('siren');
+      break;
+
+    case 'survivorHit':
+      playSound('explosion');
+      flashScreen('#ff0000', 0.35);
+      if(msg.survivorId === myId) { showFloatingText('피격! 3초간 속도 증가!', '#ff8844'); }
+      break;
+
+    case 'survivorCaged':
+      playSound('warning');
+      flashScreen('#ff4400', 0.5);
+      if(msg.survivorId === myId) { showFloatingText('감금됨! 동료가 구조해야 합니다!', '#ff4444'); }
+      gameState.cages = gameState.cages || [];
+      gameState.cages.push(msg.cage);
+      break;
+
+    case 'rescued':
+      playSound('success');
+      if(msg.survivorId === myId) { showFloatingText('구조됨! 5초간 무적!', '#4cff90'); }
+      break;
+
+    case 'survivorEscaped':
+      playSound('siren');
+      showFloatingText('탈출 성공!', '#4cff90');
+      break;
+
+    case 'survivorDied':
+      playSound('explosion');
+      if(msg.survivorId === myId) showFloatingText('사망...', '#ff4444');
+      break;
+
+    case 'campingChange':
+      // handled in render
+      break;
+
+    case 'repairNoise':
+      if(myRole === 'killer') playSound('warning');
+      break;
+
+    case 'skillCheck':
+      if(msg.survivorId === myId) triggerSkillCheck();
+      break;
+
+    case 'gameOver':
+      onGameOver(msg.winner);
+      break;
+
+    case 'playerDisconnected':
+      showFloatingText('플레이어가 연결을 끊었습니다.', '#ff8844');
+      break;
+
+    case 'error':
+      alert(msg.msg); break;
+  }
+}
+
+// ── Lobby UI ──────────────────────────────────────────────────────────────
+document.getElementById('nameInput').addEventListener('input', (e) => {
+  send({ type:'setName', name:e.target.value||'플레이어' });
+});
+document.getElementById('nameInput').addEventListener('keydown', (e) => {
+  if(e.key==='Enter') document.getElementById('readyBtn').click();
+});
+document.getElementById('readyBtn').addEventListener('click', () => {
+  const name = document.getElementById('nameInput').value.trim() || '플레이어';
+  send({ type:'setName', name });
+  send({ type:'ready' });
+  document.getElementById('readyBtn').textContent = '대기 중...';
+  document.getElementById('readyBtn').disabled = true;
+  document.getElementById('readyBtn').style.opacity = '.5';
+});
+
+function updateLobbyUI(count) {
+  const status = document.getElementById('lobbyStatus');
+  if(count < 3) status.innerHTML = `<strong>${count}/3명</strong> 접속 중 — 3명이 모여야 시작됩니다`;
+  else status.innerHTML = `<strong>3/3명</strong> 접속! 모두 준비하면 캐릭터 선택으로 넘어갑니다.`;
+}
+
+function renderPlayerSlots(playerList) {
+  const container = document.getElementById('playerSlots');
+  container.innerHTML = '';
+  for(let i=0;i<3;i++) {
+    const p = playerList[i];
+    const slot = document.createElement('div');
+    slot.className = 'player-slot' + (p ? ' filled' : '') + (p&&p.id===myId?' me':'');
+    slot.textContent = p ? (p.name||`플레이어${i+1}`) + (p.ready?' ✓':'') : '대기 중...';
+    container.appendChild(slot);
+  }
+}
+
+// ── Character Select ───────────────────────────────────────────────────────
+function showCharSelect(clients) {
+  document.getElementById('titleScreen').classList.add('hidden');
+  document.getElementById('charSelectScreen').classList.remove('hidden');
+  renderCharPlayers(clients);
+
+  charSelectInterval = setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((charSelectDeadline - Date.now()) / 1000));
+    document.getElementById('charTimerNum').textContent = remaining;
+    if(remaining <= 0) { clearInterval(charSelectInterval); charSelectInterval = null; }
+  }, 250);
+}
+
+function renderCharPlayers(playerList) {
+  const container = document.getElementById('charPlayers');
+  container.innerHTML = '';
+  for(const p of playerList) {
+    const el = document.createElement('div');
+    el.className = 'char-player-item' + (p.id===myId?' me':'');
+    const roleText = p.role ? `<span class="role-badge ${p.role==='killer'?'role-killer':'role-survivor'}">${p.role==='killer'?'🔪 살인마':'🧍 생존자'}</span>` : '';
+    el.innerHTML = (p.name||'플레이어') + roleText;
+    container.appendChild(el);
+  }
+}
+
+function updateCardAvailability(playerList) {
+  const killerTaken = playerList.some(p=>p.id!==myId&&p.role==='killer');
+  const survivorCount = playerList.filter(p=>p.id!==myId&&p.role==='survivor').length;
+  document.getElementById('cardKiller').classList.toggle('taken', killerTaken);
+  document.getElementById('cardSurvivor1').classList.toggle('taken', survivorCount>=2);
+
+  const myPlayer = playerList.find(p=>p.id===myId);
+  if(myPlayer&&myPlayer.role) {
+    myRole = myPlayer.role;
+    const confirmBtn = document.getElementById('confirmRoleBtn');
+    confirmBtn.style.display = 'inline-flex';
+    confirmBtn.style.opacity = '1';
+    confirmBtn.style.cursor = 'pointer';
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = `${myRole==='killer'?'🔪 살인마':'🧍 생존자'}로 확정!`;
+  }
+}
+
+function selectRole(role) {
+  selectedRole = role;
+  send({ type:'selectRole', role });
+}
+
+document.getElementById('confirmRoleBtn').addEventListener('click', () => {
+  if(selectedRole) send({ type:'selectRole', role:selectedRole });
+});
+
+// ── Game setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const fogCanvas = document.createElement('canvas');
+const fogCtx = fogCanvas.getContext('2d');
+
+let world = null;
+let gameState = { survivors:{}, killer:null, cages:[], gensFixed:0, endgame:false, over:false };
+let rolesMap = {};
+let myEntityId = null;
+
+const WORLD_WIDTH = 3000, WORLD_HEIGHT = 3000, CAMERA_ZOOM = 1.28;
+const camera = { x:0, y:0 };
+
+// Input tracking
+const keys = { w:false,a:false,s:false,d:false,e:false,f:false,shift:false,space:false };
+let fPressed=false, spacePressed=false;
+let mouseAngle=0;
+let inputSeq=0;
+let lastInputSent={};
+let rafId=null;
+
+// Skill check (client-side UI)
+const scState = { active:false, angle:0, speedDeg:500, targetStart:208, targetEnd:286 };
+
+// Audio
+const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+function playSound(type) {
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  if(type==='warning'){ osc.type='sine'; osc.frequency.setValueAtTime(820,audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(120,audioCtx.currentTime+0.26); gain.gain.setValueAtTime(0.35,audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.26); osc.start(); osc.stop(audioCtx.currentTime+0.26); }
+  else if(type==='explosion'){ osc.type='square'; osc.frequency.setValueAtTime(150,audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(25,audioCtx.currentTime+0.35); gain.gain.setValueAtTime(0.45,audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.35); osc.start(); osc.stop(audioCtx.currentTime+0.35); }
+  else if(type==='heartbeat'){ osc.type='triangle'; osc.frequency.setValueAtTime(55,audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(36,audioCtx.currentTime+0.18); gain.gain.setValueAtTime(0.58,audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+0.18); osc.start(); osc.stop(audioCtx.currentTime+0.18); }
+  else if(type==='success'){ osc.type='sine'; osc.frequency.setValueAtTime(660,audioCtx.currentTime); gain.gain.setValueAtTime(0.18,audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+0.08); osc.start(); osc.stop(audioCtx.currentTime+0.08); }
+  else if(type==='siren'){ osc.type='sawtooth'; osc.frequency.setValueAtTime(420,audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(620,audioCtx.currentTime+1.4); gain.gain.setValueAtTime(0.22,audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+1.4); osc.start(); osc.stop(audioCtx.currentTime+1.4); }
+}
+
+function flashScreen(color, alpha) {
+  const el=document.getElementById('flash-overlay');
+  el.style.background=color; el.style.opacity=alpha;
+  setTimeout(()=>{ el.style.opacity=0; }, 120);
+}
+
+let floatingTexts=[];
+function showFloatingText(text, color) {
+  floatingTexts.push({ text, color, life:2.5, y:canvas.height/2-60 });
+}
+
+function resize() {
+  canvas.width=window.innerWidth; canvas.height=window.innerHeight;
+  fogCanvas.width=window.innerWidth; fogCanvas.height=window.innerHeight;
+}
+window.addEventListener('resize', resize); resize();
+
+// ── Input handling ────────────────────────────────────────────────────────
+window.addEventListener('keydown', (e)=>{
+  const key=e.key.toLowerCase();
+  if(key==='w'||key==='a'||key==='s'||key==='d') keys[key]=true;
+  if(key==='e') keys.e=true;
+  if(key==='f'&&!fPressed){ keys.f=true; fPressed=true; }
+  if(e.key==='Shift') keys.shift=true;
+  if(e.code==='Space'){
+    keys.space=true;
+    if(!spacePressed&&scState.active) handleSkillCheck();
+    spacePressed=true;
+    e.preventDefault();
+  }
+  if(audioCtx.state==='suspended') audioCtx.resume();
+});
+window.addEventListener('keyup', (e)=>{
+  const key=e.key.toLowerCase();
+  if(key==='w'||key==='a'||key==='s'||key==='d') keys[key]=false;
+  if(key==='e') keys.e=false;
+  if(key==='f'){ keys.f=false; fPressed=false; }
+  if(e.key==='Shift') keys.shift=false;
+  if(e.code==='Space'){ keys.space=false; spacePressed=false; }
+});
+canvas.addEventListener('mousemove', (e)=>{
+  const cx=canvas.width/2, cy=canvas.height/2;
+  mouseAngle=Math.atan2(e.clientY-cy,e.clientX-cx);
+});
+
+function sendInput() {
+  if(!ws||ws.readyState!==1) return;
+  const input = { w:keys.w,a:keys.a,s:keys.s,d:keys.d,e:keys.e,f:keys.f,shift:keys.shift,moving:(keys.w||keys.a||keys.s||keys.d),angle:mouseAngle,vault:keys.f&&myRole==='killer' };
+  send({ type:'input', input });
+  keys.f=false; // reset f after sending
+}
+
+let lastHeartbeatTime=0;
+
+// ── Game start ────────────────────────────────────────────────────────────
+function startGame(msg) {
+  world = msg.world;
+  rolesMap = msg.roles;
+  myRole = rolesMap[myId];
+
+  document.getElementById('charSelectScreen').classList.add('hidden');
+  document.getElementById('ui-layer').style.display='block';
+  if(charSelectInterval){ clearInterval(charSelectInterval); charSelectInterval=null; }
+
+  // Set instruction bar
+  const instrEl = document.getElementById('instructionBar');
+  if(myRole==='killer') {
+    instrEl.innerHTML = '이동 <span class="key">WASD</span> | 마우스 방향으로 이동 | 창틀 <span class="key">F</span>';
+  } else {
+    instrEl.innerHTML = '이동 <span class="key">WASD</span> | 달리기 <span class="key">SHIFT</span> | 상호작용/창틀 <span class="key">E</span> | 캐비닛 <span class="key">F</span> | 스킬체크 <span class="key">SPACE</span>';
+  }
+
+  if(rafId) cancelAnimationFrame(rafId);
+  let lastFrame=0;
+  function loop(ts) {
+    const dt=Math.min(0.05,(ts-lastFrame)/1000); lastFrame=ts;
+    sendInput();
+    if(scState.active){ scState.angle+=scState.speedDeg*dt; document.getElementById('sc-needle').style.transform=`rotate(${scState.angle}deg)`; if(scState.angle>=360) failSkillCheck(); }
+    updateHUD(dt);
+    draw();
+    rafId=requestAnimationFrame(loop);
+  }
+  rafId=requestAnimationFrame(loop);
+}
+
+// ── Server state handler ───────────────────────────────────────────────────
+function onServerState(msg) {
+  gameState.killer = msg.killer;
+  gameState.survivors = msg.survivors;
+  gameState.cages = msg.cages;
+  gameState.gensFixed = msg.gensFixed;
+  gameState.endgame = msg.endgame;
+  // Sync world generators/exitGates
+  if(world) {
+    for(let i=0;i<msg.generators.length;i++) { world.generators[i].progress=msg.generators[i].progress; world.generators[i].fixed=msg.generators[i].fixed; }
+    for(let i=0;i<msg.exitGates.length;i++) { world.exitGates[i].progress=msg.exitGates[i].progress; world.exitGates[i].status=msg.exitGates[i].status; }
+  }
+  // Heartbeat
+  if(myRole==='survivor') {
+    const killerX=msg.killer.x, killerY=msg.killer.y;
+    const mySurvivor=msg.survivors[myId];
+    if(mySurvivor) {
+      const dist=Math.hypot(mySurvivor.x-killerX,mySurvivor.y-killerY);
+      if(dist<1350) {
+        document.getElementById('terror-radius').style.opacity=1-(dist/1350);
+        const now=performance.now(), beatInterval=Math.max(190,dist*1.05);
+        if(now-lastHeartbeatTime>beatInterval){ playSound('heartbeat'); lastHeartbeatTime=now; }
+      } else document.getElementById('terror-radius').style.opacity=0;
+    }
+  }
+}
+
+function onGameOver(winner) {
+  gameState.over=true; gameState.winner=winner;
+  if(rafId){ cancelAnimationFrame(rafId); rafId=null; }
+  // Draw game over
+  ctx.fillStyle='rgba(0,0,0,.88)';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  const isWin=(winner==='survivors'&&myRole==='survivor')||(winner==='killer'&&myRole==='killer');
+  ctx.fillStyle=isWin?'#4cff90':'#ff4d4d';
+  ctx.font='bold 48px Segoe UI'; ctx.textAlign='center';
+  if(winner==='survivors') ctx.fillText('생존자 승리! 성공적으로 탈출했습니다!',canvas.width/2,canvas.height/2);
+  else ctx.fillText('살인마 승리! 모든 생존자가 감금되었습니다.',canvas.width/2,canvas.height/2);
+  ctx.font='20px Segoe UI'; ctx.fillStyle='#d3d3d3';
+  ctx.fillText('새로고침(F5)하여 다시 시작',canvas.width/2,canvas.height/2+46);
+}
+
+// ── Skill check ────────────────────────────────────────────────────────────
+function triggerSkillCheck() {
+  if(scState.active) return;
+  scState.active=true; scState.angle=0;
+  document.getElementById('skill-check-container').style.display='block';
+  playSound('warning');
+}
+function handleSkillCheck() {
+  if(scState.angle>=scState.targetStart&&scState.angle<=scState.targetEnd){ scState.active=false; document.getElementById('skill-check-container').style.display='none'; playSound('success'); send({type:'skillCheckResult',success:true}); }
+  else failSkillCheck();
+}
+function failSkillCheck() {
+  scState.active=false; document.getElementById('skill-check-container').style.display='none'; playSound('explosion'); send({type:'skillCheckResult',success:false});
+}
+
+// ── HUD ────────────────────────────────────────────────────────────────────
+function updateHUD(dt) {
+  if(!world) return;
+  const mySurvivor = myRole==='survivor' ? (gameState.survivors[myId]||null) : null;
+  const myKiller = myRole==='killer' ? gameState.killer : null;
+
+  // Survivor HUD
+  const hudEl=document.getElementById('survivor-hud');
+  if(myRole==='survivor') {
+    let html='';
+    for(const [id,s] of Object.entries(gameState.survivors)) {
+      const isMe=id===myId;
+      const name=(players[id]&&players[id].name)||'생존자';
+      if(s.dead&&!s.caged) { html+=`<div class="survivor-status" style="opacity:.4">${name}: 사망</div>`; continue; }
+      if(s.escaped) { html+=`<div class="survivor-status" style="color:#4cff90">${name}: 탈출 ✓</div>`; continue; }
+      const dots=`<div class="hp-dots">${[0,1].map(i=>`<div class="hp-dot ${i<s.hp?'full':''}"></div>`).join('')}</div>`;
+      const status=s.caged?` 🔒 ${Math.ceil(s.cageTimer||0)}s`:s.invincible?' ✨':s.hitBoost?' 💨':'';
+      html+=`<div class="survivor-status${isMe?' me':''}" style="${isMe?'border-color:rgba(255,228,90,.4)':''}">${name} ${dots}${status}</div>`;
+    }
+    hudEl.innerHTML=html;
+
+    // Cage rescue indicator
+    if(mySurvivor&&mySurvivor.caged) {
+      const cage=gameState.cages.find(c=>c.survivorId===myId);
+      if(cage) {
+        const campingText=cage.camping?'<div class="camping-warn">⚠ 캠핑 감지! 타이머 정지</div>':'';
+        document.getElementById('objective').innerHTML=`<span style="color:#ff5959">🔒 감금됨 — ${Math.ceil(cage.timer||0)}초 남음</span>`;
+        if(campingText) document.getElementById('objective').innerHTML+=campingText;
+      }
+    } else {
+      document.getElementById('objective').innerHTML=gameState.endgame?'출구(레버)를 찾아 문을 여세요!':`발전기 수리: <span id="gen-count">${gameState.gensFixed}</span> / 5`;
+    }
+
+    // Action bar
+    if(mySurvivor&&mySurvivor.interacting) {
+      document.getElementById('action-bar-container').style.display='block';
+      document.getElementById('action-bar-fill').style.width=mySurvivor.actionProgress+'%';
+    } else {
+      document.getElementById('action-bar-container').style.display='none';
+    }
+
+    // Cooldown
+    if(mySurvivor&&mySurvivor.cabCooldown>0) {
+      document.getElementById('cooldown-ui').style.display='block';
+      document.getElementById('cd-time').textContent=Math.ceil(mySurvivor.cabCooldown);
+    } else {
+      document.getElementById('cooldown-ui').style.display='none';
+    }
+  } else if(myRole==='killer') {
+    hudEl.innerHTML='';
+    document.getElementById('objective').innerHTML='생존자를 잡아라! 🔪';
+    document.getElementById('objective').style.color='#ff5959';
+    document.getElementById('action-bar-container').style.display='none';
+    // Show camping notifications
+    let campingAny=false;
+    for(const cage of gameState.cages) { if(cage.camping){ campingAny=true; break; } }
+    document.getElementById('terror-radius').style.opacity=campingAny?1:0;
+    document.getElementById('terror-radius').textContent=campingAny?'캠핑을 해서 타이머가 멈췄습니다!':'';
+  }
+}
+
+// ── Camera ────────────────────────────────────────────────────────────────
+function updateCamera() {
+  if(!world) return;
+  let px, py;
+  if(myRole==='survivor') {
+    const s=gameState.survivors[myId];
+    if(!s) return;
+    px=s.x; py=s.y;
+  } else {
+    const k=gameState.killer;
+    if(!k) return;
+    px=k.x; py=k.y;
+  }
+  const vw=canvas.width/CAMERA_ZOOM, vh=canvas.height/CAMERA_ZOOM;
+  camera.x=Math.max(0,Math.min(px-vw/2,WORLD_WIDTH-vw));
+  camera.y=Math.max(0,Math.min(py-vh/2,WORLD_HEIGHT-vh));
+}
+
+// ── Drawing ────────────────────────────────────────────────────────────────
+function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+function lerp2(a,b,t){return a+(b-a)*t;}
+
+function drawFloor() {
+  ctx.fillStyle='#596068'; ctx.fillRect(0,0,WORLD_WIDTH,WORLD_HEIGHT);
+  for(let y=0;y<WORLD_HEIGHT;y+=96) for(let x=0;x<WORLD_WIDTH;x+=96){ ctx.fillStyle=((x/96+y/96)%2===0)?'#666e77':'#565e68'; ctx.fillRect(x,y,96,96); }
+  ctx.strokeStyle='rgba(255,255,255,0.045)'; ctx.lineWidth=2;
+  for(let x=0;x<WORLD_WIDTH;x+=96){ ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,WORLD_HEIGHT);ctx.stroke(); }
+  for(let y=0;y<WORLD_HEIGHT;y+=96){ ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(WORLD_WIDTH,y);ctx.stroke(); }
+}
+function drawStructures() {
+  for(const obs of world.obstacles){
+    ctx.fillStyle='#59636c'; ctx.fillRect(obs.x,obs.y,obs.w,obs.h);
+    ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.fillRect(obs.x+3,obs.y+3,obs.w-6,Math.max(4,obs.h*0.18));
+    ctx.strokeStyle='#39434c'; ctx.lineWidth=2; ctx.strokeRect(obs.x,obs.y,obs.w,obs.h);
+  }
+  for(const v of world.vaults){
+    ctx.save(); ctx.strokeStyle='#6b2d00'; ctx.fillStyle='#ff8c1a';
+    if(v.orientation==='horizontal'){ const l=Math.min(v.x1,v.x2),w=Math.abs(v.x2-v.x1); ctx.fillRect(l,v.y1-6,w,12); ctx.strokeRect(l,v.y1-6,w,12); }
+    else{ const t=Math.min(v.y1,v.y2),h=Math.abs(v.y2-v.y1); ctx.fillRect(v.x1-6,t,12,h); ctx.strokeRect(v.x1-6,t,12,h); }
+    ctx.restore();
+  }
+}
+function drawExitGates() {
+  for(const eg of world.exitGates){
+    ctx.fillStyle='#252a30'; ctx.fillRect(eg.x,eg.y,eg.w,eg.h);
+    ctx.strokeStyle='#0d1014'; ctx.lineWidth=4; ctx.strokeRect(eg.x,eg.y,eg.w,eg.h);
+    const lc=eg.status==='inactive'?'#58606a':eg.status==='open'?'#4cff90':'#ff5b5b';
+    ctx.fillStyle=lc; ctx.fillRect(eg.x+eg.w/2-40,eg.y+eg.h/2-10,80,20);
+    if(eg.status==='open'){ ctx.fillStyle='rgba(76,255,144,0.18)'; ctx.fillRect(eg.x,eg.y-18,eg.w,eg.h+36); }
+    ctx.fillStyle='#49525b'; ctx.fillRect(eg.leverX-10,eg.leverY-10,20,20);
+    ctx.fillStyle=lc; ctx.beginPath(); ctx.arc(eg.leverX,eg.leverY,5,0,Math.PI*2); ctx.fill();
+  }
+}
+function drawLockers() {
+  for(const l of world.lockers){
+    ctx.fillStyle='#7e1f1f'; ctx.fillRect(l.x,l.y,l.w,l.h);
+    ctx.fillStyle='#a22b2b'; ctx.fillRect(l.x+3,l.y+3,l.w-6,l.h-6);
+    ctx.strokeStyle='#451010'; ctx.lineWidth=3; ctx.strokeRect(l.x,l.y,l.w,l.h);
+    ctx.fillStyle='#5e1111'; ctx.fillRect(l.x+l.w/2-2,l.y+10,4,l.h-20);
+    ctx.fillStyle='#d7d7d7'; ctx.fillRect(l.x+8,l.y+8,l.w-16,7);
+  }
+}
+function drawGenerators() {
+  for(const g of world.generators){
+    ctx.save(); ctx.translate(g.x,g.y);
+    ctx.fillStyle='#55606a'; ctx.fillRect(-30,-25,60,50);
+    ctx.fillStyle=g.fixed?'#86929d':'#3f4a54'; ctx.fillRect(-20,-15,40,30);
+    ctx.fillStyle='#b8860b'; ctx.fillRect(-25,5,10,20); ctx.fillRect(15,5,10,20);
+    ctx.fillStyle='#111'; ctx.fillRect(-15,-35,30,10);
+    const lightsOn=g.fixed?4:Math.floor((g.progress/100)*4);
+    for(let i=0;i<4;i++){ ctx.fillStyle=i<lightsOn?'#ffeb3b':'#000'; ctx.beginPath();ctx.arc(-9+i*6,-30,2.5,0,Math.PI*2);ctx.fill(); }
+    ctx.restore();
+  }
+}
+function drawCages() {
+  for(const cage of gameState.cages){
+    if(!cage.survivorId) continue;
+    // Draw cage
+    ctx.save();
+    ctx.strokeStyle=cage.camping?'#ffe45a':'#ff6644'; ctx.lineWidth=3;
+    const r=36;
+    ctx.beginPath(); ctx.arc(cage.x,cage.y,r,0,Math.PI*2); ctx.stroke();
+    // Bars
+    for(let i=0;i<6;i++){ const a=i*Math.PI/3; ctx.beginPath();ctx.moveTo(cage.x+Math.cos(a)*r,cage.y+Math.sin(a)*r);ctx.lineTo(cage.x+Math.cos(a)*(r*0.3),cage.y+Math.sin(a)*(r*0.3));ctx.stroke(); }
+    // Timer
+    ctx.fillStyle=cage.camping?'#ffe45a':'#ff6644'; ctx.font='bold 14px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText(`${Math.ceil(cage.timer||0)}s`,cage.x,cage.y-r-8);
+    if(cage.camping){ ctx.fillStyle='#ffe45a'; ctx.font='11px Segoe UI'; ctx.fillText('⚠ 캠핑',cage.x,cage.y-r-22); }
+    ctx.restore();
+  }
+}
+function drawKiller() {
+  const k=gameState.killer; if(!k) return;
+  ctx.fillStyle='#1a1a1a'; ctx.beginPath(); ctx.ellipse(k.x,k.y,k.radius*1.6,k.radius*1.1,k.angle,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#0f0f0f'; ctx.beginPath(); ctx.arc(k.x,k.y,k.radius*0.8,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#8b0000'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(k.x,k.y); ctx.lineTo(k.x+Math.cos(k.angle+Math.PI/3)*45,k.y+Math.sin(k.angle+Math.PI/3)*45); ctx.stroke();
+  ctx.fillStyle='#ff0000'; ctx.shadowColor='#ff0000'; ctx.shadowBlur=10;
+  ctx.beginPath(); ctx.arc(k.x+Math.cos(k.angle)*14-Math.sin(k.angle)*7,k.y+Math.sin(k.angle)*14+Math.cos(k.angle)*7,3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(k.x+Math.cos(k.angle)*14+Math.sin(k.angle)*7,k.y+Math.sin(k.angle)*14-Math.cos(k.angle)*7,3,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+  if(myId && rolesMap[myId]==='killer') {
+    ctx.strokeStyle='rgba(255,228,90,.5)'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.arc(k.x,k.y,k.radius+6,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function drawSurvivors() {
+  for(const [id,s] of Object.entries(gameState.survivors)){
+    if(s.dead&&!s.caged) continue;
+    if(s.isHiding) continue;
+    if(s.caged) continue;
+    const isMe=id===myId;
+    const bob=Math.sin((s.walkCycle||0))*2;
+    // Invincibility flash
+    if(s.invincible&&Math.floor(Date.now()/100)%2===0&&!isMe) continue;
+    ctx.globalAlpha=s.invincible?0.6:1;
+    const bodyColor=isMe?'#244a6b':'#1a5a2a';
+    ctx.fillStyle='#49515b'; ctx.fillRect(s.x-12,s.y+bob+5,24,15);
+    ctx.fillStyle=bodyColor; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#f5d0b5'; ctx.beginPath(); ctx.arc(s.x,s.y+bob-5,s.radius*0.6,0,Math.PI*2); ctx.fill();
+    // Hit boost aura
+    if(s.hitBoost){ ctx.strokeStyle='rgba(255,136,68,.7)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+5+Math.sin(Date.now()/100)*3,0,Math.PI*2); ctx.stroke(); }
+    // Name tag
+    ctx.fillStyle=isMe?'#ffe45a':'#fff'; ctx.font='bold 11px Segoe UI'; ctx.textAlign='center';
+    const name=(players[id]&&players[id].name)||'생존자';
+    ctx.fillText(name,s.x,s.y+bob-s.radius-8);
+    if(isMe){ ctx.strokeStyle='rgba(255,228,90,.4)'; ctx.lineWidth=2; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(s.x,s.y+bob,s.radius+4,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.globalAlpha=1;
+  }
+}
+function drawFog() {
+  if(!world) return;
+  fogCtx.clearRect(0,0,fogCanvas.width,fogCanvas.height);
+  fogCtx.fillStyle='rgba(0,0,0,0.96)'; fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height);
+  fogCtx.globalCompositeOperation='destination-out';
+
+  // My entity position on screen = center
+  let myIsHiding=false;
+  if(myRole==='survivor'){
+    const s=gameState.survivors[myId];
+    if(s) myIsHiding=s.isHiding||s.caged;
+  }
+  const pRadius=myIsHiding?120:410, innerRadius=myIsHiding?14:24;
+  const grad=fogCtx.createRadialGradient(canvas.width/2,canvas.height/2,innerRadius,canvas.width/2,canvas.height/2,pRadius);
+  grad.addColorStop(0,'rgba(255,255,255,1)'); grad.addColorStop(0.45,'rgba(255,255,255,0.98)'); grad.addColorStop(0.72,'rgba(255,255,255,0.62)'); grad.addColorStop(0.90,'rgba(255,255,255,0.18)'); grad.addColorStop(1,'rgba(255,255,255,0)');
+  fogCtx.fillStyle=grad; fogCtx.beginPath(); fogCtx.arc(canvas.width/2,canvas.height/2,pRadius,0,Math.PI*2); fogCtx.fill();
+
+  // Fixed generators light up
+  for(const g of world.generators){
+    if(!g.fixed) continue;
+    const sx=(g.x-camera.x)*CAMERA_ZOOM, sy=(g.y-camera.y)*CAMERA_ZOOM;
+    const gg=fogCtx.createRadialGradient(sx,sy,40,sx,sy,280);
+    gg.addColorStop(0,'rgba(255,255,255,1)'); gg.addColorStop(1,'rgba(255,255,255,0)');
+    fogCtx.fillStyle=gg; fogCtx.beginPath(); fogCtx.arc(sx,sy,240,0,Math.PI*2); fogCtx.fill();
+  }
+  // Cages visible
+  for(const cage of gameState.cages){
+    if(!cage.survivorId) continue;
+    const sx=(cage.x-camera.x)*CAMERA_ZOOM, sy=(cage.y-camera.y)*CAMERA_ZOOM;
+    const cg=fogCtx.createRadialGradient(sx,sy,20,sx,sy,200);
+    cg.addColorStop(0,'rgba(255,255,255,0.8)'); cg.addColorStop(1,'rgba(255,255,255,0)');
+    fogCtx.fillStyle=cg; fogCtx.beginPath(); fogCtx.arc(sx,sy,180,0,Math.PI*2); fogCtx.fill();
+  }
+
+  // Killer red cone visible to killers always
+  if(myRole==='killer'||true) {
+    const k=gameState.killer;
+    if(k){ const kx=(k.x-camera.x)*CAMERA_ZOOM, ky=(k.y-camera.y)*CAMERA_ZOOM;
+      fogCtx.globalCompositeOperation='source-over';
+      const stain=fogCtx.createRadialGradient(kx,ky,14,kx,ky,520);
+      stain.addColorStop(0,'rgba(255,0,0,0.38)'); stain.addColorStop(1,'rgba(255,0,0,0)');
+      fogCtx.fillStyle=stain; fogCtx.beginPath(); fogCtx.moveTo(kx,ky); fogCtx.arc(kx,ky,520,k.angle-Math.PI/4,k.angle+Math.PI/4); fogCtx.lineTo(kx,ky); fogCtx.fill();
+    }
+  }
+  fogCtx.globalCompositeOperation='source-over';
+  const vignette=fogCtx.createRadialGradient(canvas.width/2,canvas.height/2,pRadius*0.58,canvas.width/2,canvas.height/2,Math.max(canvas.width,canvas.height)*0.82);
+  vignette.addColorStop(0,'rgba(0,0,0,0)'); vignette.addColorStop(0.62,'rgba(0,0,0,0.08)'); vignette.addColorStop(0.82,'rgba(0,0,0,0.36)'); vignette.addColorStop(1,'rgba(0,0,0,0.64)');
+  fogCtx.fillStyle=vignette; fogCtx.fillRect(0,0,fogCanvas.width,fogCanvas.height);
+  ctx.drawImage(fogCanvas,0,0);
+}
+function drawFloatingTexts() {
+  for(let i=floatingTexts.length-1;i>=0;i--){
+    const ft=floatingTexts[i];
+    ft.life-=1/60; ft.y-=0.5;
+    if(ft.life<=0){floatingTexts.splice(i,1);continue;}
+    ctx.globalAlpha=Math.min(1,ft.life);
+    ctx.fillStyle=ft.color; ctx.font='bold 22px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText(ft.text,canvas.width/2,ft.y);
+    ctx.globalAlpha=1;
+  }
+}
+
+function draw() {
+  if(!world) return;
+  updateCamera();
+  ctx.fillStyle='#42474d'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.save();
+  ctx.scale(CAMERA_ZOOM,CAMERA_ZOOM);
+  ctx.translate(-camera.x,-camera.y);
+  drawFloor();
+  drawStructures();
+  drawExitGates();
+  drawLockers();
+  drawGenerators();
+  drawCages();
+  drawKiller();
+  drawSurvivors();
+  ctx.restore();
+  drawFog();
+  drawFloatingTexts();
+
+  // Hiding indicator
+  const mySurvivor=myRole==='survivor'?(gameState.survivors[myId]||null):null;
+  if(mySurvivor&&mySurvivor.isHiding){
+    ctx.fillStyle='#ffeb3b'; ctx.font='bold 24px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText('[ F ] 키를 눌러 밖으로 나가세요',canvas.width/2,canvas.height-150);
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+connectWS();
+
+})();
+</script>
+</body>
+</html>
