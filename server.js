@@ -778,15 +778,18 @@ wss.on('connection', (ws) => {
 
       case 'selectRole': {
         if(room.phase!=='character_select') break;
-        const wantedRole=msg.role; // 'killer' | 'survivor'
+        const wantedRole=msg.role;
         const clients=[...room.clients.values()];
         const killerTaken=clients.some(c=>c!==client&&c.role==='killer');
         const survivorCount=clients.filter(c=>c!==client&&c.role==='survivor').length;
         if(wantedRole==='killer'&&!killerTaken){ client.role='killer'; }
         else if(wantedRole==='survivor'&&survivorCount<2){ client.role='survivor'; }
+        else if(wantedRole==='killer'&&killerTaken){ client.role='survivor'; } // fallback
         broadcast(room,{type:'roleUpdate',players:clients.map(c=>({id:c.id,name:c.name,role:c.role}))});
-        // If all selected, start
-        if(clients.every(c=>c.role) && clients.filter(c=>c.role==='killer').length===1 && clients.filter(c=>c.role==='survivor').length===2) {
+        // Start if all 3 have roles and exactly 1 killer + 2 survivors
+        const killerCount=clients.filter(c=>c.role==='killer').length;
+        const survCount=clients.filter(c=>c.role==='survivor').length;
+        if(killerCount===1&&survCount===2) {
           startGame(room);
         }
         break;
