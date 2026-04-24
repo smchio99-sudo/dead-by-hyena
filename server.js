@@ -456,12 +456,16 @@ function tickGame(room, dt) {
     // Cabinet toggle
     if(inp.fJust) {
       if(s.isHiding) {
-        const locker=s.currentLocker;
-        s.isHiding=false; s.currentLocker=null; s.cabCooldown=10;
-        if(locker){ s.x=clamp(locker.x+locker.w+30,s.radius,WORLD_WIDTH-s.radius); s.y=clamp(locker.y+locker.h/2,s.radius,WORLD_HEIGHT-s.radius); }
+        // 입장 후 최소 1초 지나야 나갈 수 있음
+        const hideTime = s.hideTime||0;
+        if(Date.now()-hideTime >= 1000) {
+          const locker=s.currentLocker;
+          s.isHiding=false; s.currentLocker=null; s.cabCooldown=10; s.hideTime=0;
+          if(locker){ s.x=clamp(locker.x+locker.w+30,s.radius,WORLD_WIDTH-s.radius); s.y=clamp(locker.y+locker.h/2,s.radius,WORLD_HEIGHT-s.radius); }
+        }
       } else if(s.cabCooldown<=0) {
         const locker=findNearbyLocker2(s.x,s.y,30,world.lockers);
-        if(locker){ s.isHiding=true; s.currentLocker=locker; s.x=locker.x+locker.w/2; s.y=locker.y+locker.h/2; }
+        if(locker){ s.isHiding=true; s.currentLocker=locker; s.x=locker.x+locker.w/2; s.y=locker.y+locker.h/2; s.hideTime=Date.now(); }
       }
     }
 
@@ -857,10 +861,14 @@ wss.on('connection', (ws) => {
       case 'skillCheckResult':
         if(room.phase==='playing'&&room.game) {
           if(!msg.success){
-            // fail: reduce gen progress
-            for(const g of room.world.generators) {
-              if(!g.fixed&&Math.hypot(game.survivors[client.id]?.x-g.x,game.survivors[client.id]?.y-g.y)<74){
-                g.progress=Math.max(0,g.progress-10); break;
+            const failSurv = room.game.survivors[client.id];
+            if(failSurv) {
+              for(const g of room.world.generators) {
+                if(!g.fixed&&Math.hypot(failSurv.x-g.x,failSurv.y-g.y)<74){
+                  g.progress=Math.max(0,g.progress-10);
+                  broadcast(room,{type:'skillCheckFail',survivorId:client.id,genX:g.x,genY:g.y});
+                  break;
+                }
               }
             }
           }
@@ -870,11 +878,26 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
+    const dcRole = clientInfo.role;
     room.clients.delete(ws);
     broadcast(room,{type:'playerCount',count:room.clients.size});
-    if(room.clients.size===0){ rooms.delete(roomId); }
-    else if(room.phase==='playing'&&room.game) {
-      broadcast(room,{type:'playerDisconnected',id:clientId});
+    if(room.clients.size===0){ rooms.delete(roomId); return; }
+
+    if(room.phase==='playing'&&room.game&&!room.game.over) {
+      if(dcRole==='killer') {
+        // 살인마 접속 끊김 → 생존자 승리
+        room.game.over=true; room.game.winner='survivors';
+        broadcast(room,{type:'gameOver',winner:'survivors',reason:'killerLeft'});
+        room.phase='ended';
+      } else if(dcRole==='survivor') {
+        // 생존자 접속 끊김 → 해당 생존자 사망 처리
+        const dcSurv=room.game.survivors[clientId];
+        if(dcSurv){ dcSurv.dead=true; dcSurv.caged=false; }
+        broadcast(room,{type:'playerDisconnected',id:clientId,role:dcRole});
+        checkVictory(room,room.game,room.world);
+      } else {
+        broadcast(room,{type:'playerDisconnected',id:clientId});
+      }
     }
   });
 });
