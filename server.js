@@ -402,7 +402,7 @@ function tickGame(room, dt) {
     } else {
       if(killerInput.angle!==undefined) killer.angle=killerInput.angle;
       if(killerInput.moving) moveEntity(killer,killer.speed*0.9,dt,obs);
-      if(killerInput.vault && !killer.vaultAction && (!killer.vaultCooldown||killer.vaultCooldown<=0)) {
+      if(killerInput.vaultJust && !killer.vaultAction && (!killer.vaultCooldown||killer.vaultCooldown<=0)) {
         const vault=findNearbyVault(killer.x,killer.y,42,vaults);
         if(vault){ const target=getVaultTarget(vault,killer,82); killer.vaultAction={vault,startX:killer.x,startY:killer.y,targetX:target.x,targetY:target.y,duration:2.0,elapsed:0}; killer.vaultCooldown=0.6; }
       }
@@ -817,6 +817,7 @@ wss.on('connection', (ws) => {
           const inp=msg.input;
           // fJust = pressed this frame but not last frame
           inp.fJust = inp.f && !prev.f;
+          inp.vaultJust = inp.vault && !prev.vault;
           inp.human = true;
           room.game.inputs[client.id]=inp;
           // Killer: check locker with fJust
