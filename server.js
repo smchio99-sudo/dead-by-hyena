@@ -325,6 +325,15 @@ function getVaultTarget(vault,entity,extra){
   const dir=entity.x<vault.cx?1:-1;
   return{x:vault.cx+dir*extra,y:clamp(entity.y,Math.min(vault.y1,vault.y2)+10,Math.max(vault.y1,vault.y2)-10)};
 }
+function moveEntityHuman(entity,speed,dt,obstacles){
+  // 사람 플레이어용: 벽 미끄러짐만, 강제 각도 변경 없음
+  const dist=speed*dt;
+  const nx=clamp(entity.x+Math.cos(entity.angle)*dist,entity.radius,WORLD_WIDTH-entity.radius);
+  const ny=clamp(entity.y+Math.sin(entity.angle)*dist,entity.radius,WORLD_HEIGHT-entity.radius);
+  if(!checkCollision(nx,ny,entity.radius,obstacles)){entity.x=nx;entity.y=ny;}
+  else if(!checkCollision(nx,entity.y,entity.radius,obstacles)){entity.x=nx;}
+  else if(!checkCollision(entity.x,ny,entity.radius,obstacles)){entity.y=ny;}
+}
 function moveEntity(entity,speed,dt,obstacles){
   const dist=speed*dt;
   const tryMove=(angle,scale=1)=>{
@@ -408,11 +417,11 @@ function tickGame(room, dt) {
       if(kdx!==0||kdy!==0){
         killer.angle=Math.atan2(kdy,kdx);
         const spd=killerInput.shift?killer.speed*1.05:killer.speed*0.9;
-        moveEntity(killer,spd,dt,obs);
+        moveEntityHuman(killer,spd,dt,obs);
       }
       // 창틀 (E키)
       if(killerInput.vaultJust && !killer.vaultAction && (!killer.vaultCooldown||killer.vaultCooldown<=0)) {
-        const vault=findNearbyVault(killer.x,killer.y,42,vaults);
+        const vault=findNearbyVault(killer.x,killer.y,65,vaults);
         if(vault){ const target=getVaultTarget(vault,killer,82); killer.vaultAction={vault,startX:killer.x,startY:killer.y,targetX:target.x,targetY:target.y,duration:2.0,elapsed:0}; killer.vaultCooldown=0.6; }
       }
     }
@@ -496,7 +505,7 @@ function tickGame(room, dt) {
     // E - vault or generator repair or rescue or exit
     if(inp.e) {
       // Vault
-      const vault=findNearbyVault(s.x,s.y,34,vaults);
+      const vault=findNearbyVault(s.x,s.y,65,vaults);
       if(vault&&!s.vaultAction){
         const target=getVaultTarget(vault,s,78);
         s.vaultAction={vault,startX:s.x,startY:s.y,targetX:target.x,targetY:target.y,duration:0.5,elapsed:0};
