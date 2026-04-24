@@ -464,8 +464,8 @@ function tickGame(room, dt) {
     let spd = inp.shift ? s.runSpeed : s.walkSpeed;
     if(s.hitBoost>0) spd=s.runSpeed*1.5; // speed boost after first hit
     const nx=s.x+dx*spd*dt, ny=s.y+dy*spd*dt;
-    if(!checkCollision(nx,s.y,s.radius)) s.x=clamp(nx,s.radius,WORLD_WIDTH-s.radius);
-    if(!checkCollision(s.x,ny,s.radius)) s.y=clamp(ny,s.radius,WORLD_HEIGHT-s.radius);
+    if(!checkCollision(nx,s.y,s.radius,obs)) s.x=clamp(nx,s.radius,WORLD_WIDTH-s.radius);
+    if(!checkCollision(s.x,ny,s.radius,obs)) s.y=clamp(ny,s.radius,WORLD_HEIGHT-s.radius);
     if(dx!==0||dy!==0){ s.walkCycle+=(inp.shift?7.5:4)*dt; s.angle=Math.atan2(dy,dx); }
 
     // E - vault or generator repair or rescue or exit
