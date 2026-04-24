@@ -851,8 +851,13 @@ wss.on('connection', (ws) => {
                 for(const [sid,surv] of Object.entries(room.game.survivors)){
                   if(surv.isHiding && surv.currentLocker &&
                      Math.abs(surv.currentLocker.x-l.x)<1 && Math.abs(surv.currentLocker.y-l.y)<1){
-                    // Kill them
+                    // 로커 밖으로 먼저 이동 후 감금
+                    const locker=surv.currentLocker;
                     surv.isHiding=false; surv.currentLocker=null;
+                    if(locker){
+                      surv.x=clamp(locker.x+locker.w+30,surv.radius,WORLD_WIDTH-surv.radius);
+                      surv.y=clamp(locker.y+locker.h/2,surv.radius,WORLD_HEIGHT-surv.radius);
+                    }
                     const cage=spawnCage(room.game,sid,room.world);
                     broadcast(room,{type:'survivorCaged',survivorId:sid,cage:{id:cage.id,x:cage.x,y:cage.y}});
                     checkVictory(room,room.game,room.world);
