@@ -400,8 +400,17 @@ function tickGame(room, dt) {
       killer.x=lerp2(v.startX,v.targetX,t); killer.y=lerp2(v.startY,v.targetY,t);
       if(t>=1) killer.vaultAction=null;
     } else {
-      if(killerInput.angle!==undefined) killer.angle=killerInput.angle;
-      if(killerInput.moving) moveEntity(killer,killer.speed*0.9,dt,obs);
+      // WASD 이동 (생존자와 동일 방식)
+      let kdx=0, kdy=0;
+      if(killerInput.w) kdy-=1; if(killerInput.s) kdy+=1;
+      if(killerInput.a) kdx-=1; if(killerInput.d) kdx+=1;
+      if(kdx!==0&&kdy!==0){kdx*=0.70710678;kdy*=0.70710678;}
+      if(kdx!==0||kdy!==0){
+        killer.angle=Math.atan2(kdy,kdx);
+        const spd=killerInput.shift?killer.speed*1.05:killer.speed*0.9;
+        moveEntity(killer,spd,dt,obs);
+      }
+      // 창틀 (E키)
       if(killerInput.vaultJust && !killer.vaultAction && (!killer.vaultCooldown||killer.vaultCooldown<=0)) {
         const vault=findNearbyVault(killer.x,killer.y,42,vaults);
         if(vault){ const target=getVaultTarget(vault,killer,82); killer.vaultAction={vault,startX:killer.x,startY:killer.y,targetX:target.x,targetY:target.y,duration:2.0,elapsed:0}; killer.vaultCooldown=0.6; }
